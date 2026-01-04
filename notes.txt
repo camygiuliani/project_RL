@@ -5,4 +5,4 @@ python eval_dqn.py --model checkpoints/dqn_latest.pt
 
 python sarfa.py --model checkpoints/dqn_latest.pt
 
-python visualize_sarfa.py
+
