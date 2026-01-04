@@ -3,6 +3,7 @@ import torch
 from wrappers import make_env
 from networks import DQNCNN
 from dqn_agent import DQNAgent
+import ale_py
 
 def main():
     env_id = "ALE/SpaceInvaders-v5"
