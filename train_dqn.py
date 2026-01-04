@@ -3,6 +3,7 @@ import time
 import numpy as np
 from tqdm import tqdm
 import torch
+import ale_py
 
 from wrappers import make_env
 from replay_buffer import ReplayBuffer
@@ -29,7 +30,7 @@ def main():
     double_dqn = True
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
+    print(f"Using device: {device}")
     env = make_env(env_id=env_id, seed=seed)
     n_actions = env.action_space.n
     obs_shape = env.observation_space.shape  # (84,84,4)
