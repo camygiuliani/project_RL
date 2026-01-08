@@ -51,8 +51,7 @@ def main():
                     train_f=dqn_f, target_update=dqn_target_update, n_checkpoints=dqn_n_checkpoints)
     
     #PPO training
-    run_ppo = True  # metti False per usare DQN
-
+    run_ppo = True 
     if run_ppo:
         train_ppo(
             env_id="ALE/SpaceInvaders-v5",
