@@ -1,13 +1,14 @@
 import numpy as np
-import numpy as np
 from tqdm import tqdm
-import torch
-import torch.nn.functional as F
-import torch.nn as nn
-import ale_py
-from replay_buffer import ReplayBuffer
 import os
 import time
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+import torch.nn as nn
+import ale_py # type: ignore
+from replay_buffer import ReplayBuffer
+
 
 class DQNCNN(nn.Module):
     def __init__(self, n_actions: int, in_channels: int = 4):
@@ -116,7 +117,7 @@ class DQN_Agent:
         final_path = f"checkpoints/dqn_{total_steps}.pt"
 
         print(f"Using device: {self.device}")
-        env = make_env(env_id=self.env, seed=seed)
+        env = env.make_env(env_id=self.env, seed=seed)
     
         obs_shape = env.observation_space.shape  # (84,84,4)
         rb = ReplayBuffer(buffer_size, obs_shape)
