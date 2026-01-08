@@ -9,6 +9,8 @@ import os
 import time
 from dqn_agent import DQN_Agent
 from wrappers import make_env
+from train_ppo import train_ppo
+
 
 
 def main():
@@ -46,3 +48,18 @@ def main():
 
     dqn_agent.train(batch_size=dqn_batch_size, buffer_size=dqn_buffer_size, total_steps=dqn_steps, l_start=dqn_start,
                     train_f=dqn_f, target_update=dqn_target_update, n_checkpoints=dqn_n_checkpoints)
+    
+    #PPO training
+    run_ppo = True  # metti False per usare DQN
+
+    if run_ppo:
+        train_ppo(
+            env_id="ALE/SpaceInvaders-v5",
+            seed=0,
+            total_timesteps=2_000_000,
+            n_envs=8,
+            log_dir="runs/ppo",
+            tensorboard=True,
+        )
+    
+    return
