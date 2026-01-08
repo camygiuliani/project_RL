@@ -1,9 +1,8 @@
 import numpy as np
 import torch
 from wrappers import make_env
-from networks import DQNCNN
-from dqn_agent import DQNAgent
-import ale_py
+from dqn_agent import DQN_Agent, DQNCNN
+import ale_py # type: ignore
 
 def main():
     env_id = "ALE/SpaceInvaders-v5"
@@ -15,7 +14,7 @@ def main():
 
     q = DQNCNN(in_channels=obs_shape[2], n_actions=n_actions)
     tgt = DQNCNN(in_channels=obs_shape[2], n_actions=n_actions)
-    agent = DQNAgent(q, tgt, n_actions, device, double_dqn=True)
+    agent = DQN_Agent(q, tgt, n_actions, device, double_dqn=True)
 
     agent.load("checkpoints/dqn_step_200000.pt")  # cambia path
 
