@@ -7,6 +7,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn as nn
 import ale_py 
+from wrappers import make_env
+
 from replay_buffer import ReplayBuffer
 
 
@@ -117,7 +119,7 @@ class DQN_Agent:
         final_path = f"checkpoints/dqn_{total_steps}.pt"
 
         print(f"Using device: {self.device}")
-        env = env.make_env(env_id=self.env, seed=seed)
+        env = make_env(env_id=self.env, seed=seed)
     
         obs_shape = env.observation_space.shape  # (84,84,4)
         rb = ReplayBuffer(buffer_size, obs_shape)
