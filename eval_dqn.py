@@ -2,7 +2,7 @@ import numpy as np
 import torch
 from wrappers import make_env
 from dqn_agent import DQN_Agent, DQNCNN
-import ale_py # type: ignore
+import ale_py 
 
 def main():
     env_id = "ALE/SpaceInvaders-v5"
