@@ -32,24 +32,6 @@ def main():
     dqn_lr=1e-4
     double_dqn=True
 
-    #DQN training
-    dqn_seed = 0
-    dqn_steps = 2_000_000
-    dqn_start = 50_000
-    dqn_f = 4
-    dqn_batch_size = 32
-    dqn_buffer_size = 200_000
-    dqn_target_update = 10_000
-    dqn_n_checkpoints = 5 
-
-    dqn_agent = DQN_Agent(n_channels=dqn_channels, n_actions=action_dim, 
-                           device=device, env=env_id, gamma=dqn_gamma, lr =dqn_lr,
-                           double_dqn=double_dqn)
-    
-
-    dqn_agent.train(batch_size=dqn_batch_size, buffer_size=dqn_buffer_size, total_steps=dqn_steps, l_start=dqn_start,
-                    train_f=dqn_f, target_update=dqn_target_update, n_checkpoints=dqn_n_checkpoints)
-    
     #PPO training
     run_ppo = True 
     if run_ppo:
@@ -62,4 +44,24 @@ def main():
             tensorboard=True,
         )
     
-    return
+        
+    else:
+        #DQN training
+        dqn_seed = 0
+        dqn_steps = 2_000_000
+        dqn_start = 50_000
+        dqn_f = 4
+        dqn_batch_size = 32
+        dqn_buffer_size = 200_000
+        dqn_target_update = 10_000
+        dqn_n_checkpoints = 5 
+
+        dqn_agent = DQN_Agent(n_channels=dqn_channels, n_actions=action_dim, 
+                            device=device, env=env_id, gamma=dqn_gamma, lr =dqn_lr,
+                            double_dqn=double_dqn)
+        
+
+        dqn_agent.train(batch_size=dqn_batch_size, buffer_size=dqn_buffer_size, total_steps=dqn_steps, l_start=dqn_start,
+                        train_f=dqn_f, target_update=dqn_target_update, n_checkpoints=dqn_n_checkpoints)
+        
+    
