@@ -15,8 +15,9 @@ from train_ppo import train_ppo
 
 
 def main():
+    print("Starting training script...")
     env_id = "ALE/SpaceInvaders-v5"
-    temp_env = gym.make(env_id)
+    temp_env = make_env(env_id)
     action_dim = temp_env.action_space.n
     temp_env.close()
     
@@ -64,4 +65,5 @@ def main():
         dqn_agent.train(batch_size=dqn_batch_size, buffer_size=dqn_buffer_size, total_steps=dqn_steps, l_start=dqn_start,
                         train_f=dqn_f, target_update=dqn_target_update, n_checkpoints=dqn_n_checkpoints)
         
-    
+if __name__ == "__main__":
+    main()
