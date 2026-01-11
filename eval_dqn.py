@@ -7,6 +7,7 @@ import ale_py
 def main():
     env_id = "ALE/SpaceInvaders-v5"
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print("Using device:", device)
 
     env = make_env(env_id=env_id, seed=123)
     n_actions = env.action_space.n
