@@ -1,3 +1,4 @@
+import argparse
 import gymnasium as gym
 import numpy as np
 from tqdm import tqdm
@@ -15,6 +16,16 @@ from train_ppo import train_ppo
 
 
 def main():
+    parser = argparse.ArgumentParser(description='Run training of selected RL algorithm.')
+    parser.add_argument('-dqn', '--dqn', action='store_true')
+    parser.add_argument('-ddqn', '--ddqn', action='store_true')
+    parser.add_argument('-ppo', '--ppo', action='store_true')
+    args = parser.parse_args()
+
+    train_dqn = args.dqn
+    train_ddqn = args.ddqn
+    train_ppo = args.ppo
+
     print("Starting training script...")
     env_id = "ALE/SpaceInvaders-v5"
     temp_env = make_env(env_id)
@@ -33,22 +44,10 @@ def main():
     dqn_lr=1e-4
     double_dqn=True
 
-    #PPO training
-    run_ppo = True 
-    if run_ppo:
-        train_ppo(
-            env_id="ALE/SpaceInvaders-v5",
-            seed=0,
-            total_timesteps=2_000_000,
-            n_envs=8,
-            log_dir="runs/ppo",
-            tensorboard=True,
-        )
-    
-        
-    else:
+
+    if train_dqn:
         #DQN training
-        dqn_seed = 0
+        print("Starting DQN training...")
         dqn_steps = 2_000_000
         dqn_start = 50_000
         dqn_f = 4
@@ -64,6 +63,18 @@ def main():
 
         dqn_agent.train(batch_size=dqn_batch_size, buffer_size=dqn_buffer_size, total_steps=dqn_steps, l_start=dqn_start,
                         train_f=dqn_f, target_update=dqn_target_update, n_checkpoints=dqn_n_checkpoints)
+    #PPO training   
+    if train_ppo:
+        print("Starting PPO training...")
+        train_ppo(
+            env_id="ALE/SpaceInvaders-v5",
+            seed=0,
+            total_timesteps=2_000_000,
+            n_envs=8,
+            log_dir="runs/ppo",
+            tensorboard=True,
+        )
+    
         
 if __name__ == "__main__":
     main()
