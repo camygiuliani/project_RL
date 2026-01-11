@@ -1,10 +1,11 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-
-
-
-
+import os
+import argparse
+import matplotlib.pyplot as plt
+from wrappers import make_env
+from dqn_agent import DQN_Agent,DQNCNN
 
 
 def _get_fill_value(obs_uint8, mode="mean"):
@@ -258,13 +259,6 @@ def sarfa_heatmap_ppo(
 
 
 def main():
-    import os
-    import argparse
-    import matplotlib.pyplot as plt
-
-    from wrappers import make_env
-    from dqn_agent import DQN_Agent,DQNCNN
-
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="checkpoints/dqn_step_200000.pt")
     parser.add_argument("--env", type=str, default="ALE/SpaceInvaders-v5")
