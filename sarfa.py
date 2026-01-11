@@ -3,6 +3,10 @@ import torch
 import torch.nn.functional as F
 
 
+
+
+
+
 def _get_fill_value(obs_uint8, mode="mean"):
     # here we decide how to fill the occluded patch
     
@@ -269,7 +273,7 @@ def main():
     parser.add_argument("--outdir", type=str, default="outputs")
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--algo", type=str, default="dqn", choices=["dqn", "ppo"])
-    parser.add_argument("--ppo_model", type=str, default="runs/ppo/ppo_spaceinvaders.zip")
+    parser.add_argument("--ppo_model", type=str, default="runs/ppo/ppo_spaceinvaders_ckpt_2000000_steps.zip")
 
     args = parser.parse_args()
 
@@ -281,17 +285,19 @@ def main():
     n_actions = env.action_space.n
     obs_shape = env.observation_space.shape  # (84,84,4)
 
-    # we create 2 networks with the same architecture
-    q = DQNCNN(in_channels=obs_shape[2], n_actions=n_actions)
-    tgt = DQNCNN(in_channels=obs_shape[2], n_actions=n_actions)
-    #now we create the agent and load the model
-    agent = DQN_Agent(q, tgt, n_actions, device, double_dqn=True)
-    agent.load(args.model)
+    
 
     #take an observation to analyze
     obs, _ = env.reset(seed=args.seed)
 
     if args.algo == "dqn":
+
+        # we create 2 networks with the same architecture
+        q = DQNCNN(in_channels=obs_shape[2], n_actions=n_actions)
+        tgt = DQNCNN(in_channels=obs_shape[2], n_actions=n_actions)
+        #now we create the agent and load the model
+        agent = DQN_Agent(q, tgt, n_actions, device, double_dqn=True)
+        agent.load(args.model)
         heat, action = sarfa_heatmap(
             agent, obs,
             patch=args.patch, stride=args.stride,
@@ -323,14 +329,15 @@ def main():
     plt.figure()
     plt.imshow(gray, cmap="gray")
     plt.imshow(heat, alpha=0.5)
-    plt.title(f"SARFA-like heatmap (action={action})")
+    plt.title(f"SARFA-like heatmap (action={action}) with {args.algo} ")
     plt.axis("off")
-    png_path = os.path.join(args.outdir, "sarfa_overlay.png")
+    path_title= "sarfa_overlay_with_"+args.algo+".png"
+    png_path = os.path.join(args.outdir, path_title)
     plt.savefig(png_path, dpi=150, bbox_inches="tight")
     plt.close()
 
     env.close()
-    #print(f"[SARFA] Saved: {npy_path}")
+    
     print(f"[SARFA] Saved: {png_path}")
 
 if __name__ == "__main__":
