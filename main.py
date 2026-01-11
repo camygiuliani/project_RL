@@ -22,10 +22,6 @@ def main():
     parser.add_argument('-ppo', '--ppo', action='store_true')
     args = parser.parse_args()
 
-    train_dqn = args.dqn
-    train_ddqn = args.ddqn
-    train_ppo = args.ppo
-
     print("Starting training script...")
     env_id = "ALE/SpaceInvaders-v5"
     temp_env = make_env(env_id)
@@ -45,7 +41,7 @@ def main():
     double_dqn=True
 
 
-    if train_dqn:
+    if args.dqn:
         #DQN training
         print("Starting DQN training...")
         dqn_steps = 2_000_000
@@ -64,7 +60,7 @@ def main():
         dqn_agent.train(batch_size=dqn_batch_size, buffer_size=dqn_buffer_size, total_steps=dqn_steps, l_start=dqn_start,
                         train_f=dqn_f, target_update=dqn_target_update, n_checkpoints=dqn_n_checkpoints)
     #PPO training   
-    if train_ppo:
+    if args.ppo:
         print("Starting PPO training...")
         train_ppo(
             env_id="ALE/SpaceInvaders-v5",
