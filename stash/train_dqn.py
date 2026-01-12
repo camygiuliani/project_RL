@@ -8,7 +8,7 @@ import ale_py
 from wrappers import make_env
 from replay_buffer import ReplayBuffer
 from networks import DQNCNN
-from dqn_agent import DQNAgent
+from dqn_agent import DQN_Agent
 
 def linear_eps(step, eps_start=1.0, eps_end=0.1, decay_steps=1_000_000):
     t = min(step / decay_steps, 1.0)
@@ -37,7 +37,7 @@ def main():
 
     q = DQNCNN(in_channels=obs_shape[2], n_actions=n_actions)
     tgt = DQNCNN(in_channels=obs_shape[2], n_actions=n_actions)
-    agent = DQNAgent(q, tgt, n_actions, device, gamma=gamma, lr=lr, double_dqn=double_dqn)
+    agent = DQN_Agent(q, tgt, n_actions, device, gamma=gamma, lr=lr, double_dqn=double_dqn)
 
     rb = ReplayBuffer(buffer_size, obs_shape)
 
