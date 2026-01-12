@@ -11,7 +11,7 @@ import os
 import time
 from dqn_agent import DQN_Agent
 from wrappers import make_env
-from train_ppo import train_ppo
+from ppo_scratch import PPOTrainer
 
 
 
@@ -41,6 +41,9 @@ def main():
     double_dqn=True
 
 
+    ###
+    ###     DQN PART
+    ###
     if args.dqn:
         #DQN training
         print("Starting DQN training...")
@@ -59,17 +62,23 @@ def main():
 
         dqn_agent.train(batch_size=dqn_batch_size, buffer_size=dqn_buffer_size, total_steps=dqn_steps, l_start=dqn_start,
                         train_f=dqn_f, target_update=dqn_target_update, n_checkpoints=dqn_n_checkpoints)
-    #PPO training   
+    
+    ####
+    ####        PPO training  
+    #### 
+    ####  
     if args.ppo:
-        print("Starting PPO training...")
-        train_ppo(
+        print("Starting PPO (scratch) training...")
+        trainer = PPOTrainer(
             env_id="ALE/SpaceInvaders-v5",
             seed=0,
-            total_timesteps=2_000_000,
-            n_envs=8,
-            log_dir="runs/ppo",
-            tensorboard=True,
+            rollout_len=128,
+            n_epochs=4,
+            batch_size=256,
+            save_dir="runs/ppo_scratch",
+            eval_every=100000,
         )
+        trainer.train(total_steps=2_000_000)
     
         
 if __name__ == "__main__":
