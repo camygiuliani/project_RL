@@ -89,7 +89,7 @@ class ActorCriticCNN(nn.Module):
         return logits, value
 
 
-class PPOTrainer:
+class PPO_Agent:
     """
     PPO-Clip from scratch (discrete actions) designed to plug into your project.
     Use:

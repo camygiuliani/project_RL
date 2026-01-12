@@ -11,7 +11,7 @@ import os
 import time
 from dqn_agent import DQN_Agent
 from wrappers import make_env
-from ppo_scratch import PPOTrainer
+from ppo_scratch import PPO_Agent
 
 
 
@@ -42,10 +42,9 @@ def main():
 
 
     ###
-    ###     DQN PART
+    ###     DQN Training
     ###
     if args.dqn:
-        #DQN training
         print("Starting DQN training...")
         dqn_steps = 2_000_000
         dqn_start = 50_000
@@ -65,11 +64,10 @@ def main():
     
     ####
     ####        PPO training  
-    #### 
     ####  
     if args.ppo:
         print("Starting PPO (scratch) training...")
-        trainer = PPOTrainer(
+        trainer = PPO_Agent(
             env_id="ALE/SpaceInvaders-v5",
             seed=0,
             rollout_len=128,
