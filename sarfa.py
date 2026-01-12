@@ -378,7 +378,12 @@ def sarfa_heatmap_ppo_scratch(
 
 
 def main():
-   
+    import os
+    import argparse
+    import matplotlib.pyplot as plt
+
+    from wrappers import make_env
+    from dqn_agent import DQN_Agent,DQNCNN
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="checkpoints/dqn_step_200000.pt")
