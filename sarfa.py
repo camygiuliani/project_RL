@@ -1,10 +1,14 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
+import matplotlib.pyplot as plt
+import os
+import argparse
+import matplotlib.pyplot as plt
 
-
-
-
+from wrappers import make_env
+from ppo_scratch import ActorCriticCNN
+from dqn_agent import DQN_Agent,DQNCNN
 
 
 def _get_fill_value(obs_uint8, mode="mean"):
@@ -145,7 +149,7 @@ def sarfa_heatmap(
     return heat, action
 
 
-
+'''
 # =========================
 # PPO version (SB3)
 # =========================
@@ -254,16 +258,127 @@ def sarfa_heatmap_ppo(
 
     return heat, action
 
+'''
+
+# =========================
+# PPO version (SCRATCH)
+# =========================
+
+@torch.no_grad()
+def ppo_scratch_logprobs_batch(actor_critic_net, device, obs_uint8_batch, actions=None):
+    """
+    actor_critic_net: your ActorCriticCNN (from ppo_agent.py), already on device
+    obs_uint8_batch: (N,H,W,4) uint8
+    actions: optional (N,) int actions. If None, we use argmax of policy logits.
+
+    Returns:
+      logp: (N,) float  log pi(a|s) for chosen action
+      chosen_actions: (N,) int
+      best_actions: (N,) int  argmax_a pi(a|s)
+    """
+    x = torch.from_numpy(obs_uint8_batch).to(device)
+    x = x.permute(0, 3, 1, 2).float() / 255.0  # NCHW
+
+    logits, _ = actor_critic_net(x)  # logits: (N,A)
+    dist = torch.distributions.Categorical(logits=logits)
+
+    best_actions = torch.argmax(logits, dim=1)
+
+    if actions is None:
+        chosen_actions = best_actions
+    else:
+        chosen_actions = torch.as_tensor(actions, device=device, dtype=torch.long)
+
+    logp = dist.log_prob(chosen_actions)  # (N,)
+    return (
+        logp.detach().cpu().numpy(),
+        chosen_actions.detach().cpu().numpy(),
+        best_actions.detach().cpu().numpy()
+    )
+
+
+def sarfa_heatmap_ppo_scratch(
+    actor_critic_net,
+    device,
+    obs_uint8,
+    action=None,
+    patch=8,
+    stride=8,
+    fill_mode="mean",
+    batch_size=64,
+    clamp_positive=True,
+    use_action_flip=True,
+    flip_weight=2.0
+):
+    """
+    SARFA-like for PPO scratch:
+      score = log pi(a|s) - log pi(a|s_masked)
+    action flip: argmax policy changes after occlusion
+
+    Returns: heatmap (H,W) in [0,1], explained action
+    """
+    H, W, C = obs_uint8.shape
+    assert C == 4, "(84,84,4)"
+
+    # base: best action from logits
+    _, base_chosen, base_best = ppo_scratch_logprobs_batch(
+        actor_critic_net, device, obs_uint8[None, ...], actions=None
+    )
+    base_best = int(base_best[0])
+
+    if action is None:
+        action = int(base_chosen[0])  # explain deterministic best action
+
+    # reference logp of that action on original obs
+    base_score_ref = float(
+        ppo_scratch_logprobs_batch(
+            actor_critic_net, device, obs_uint8[None, ...], actions=np.array([action], dtype=np.int64)
+        )[0][0]
+    )
+
+    coords = [(x, y) for y in range(0, H - patch + 1, stride)
+                    for x in range(0, W - patch + 1, stride)]
+
+    heat = np.zeros((H, W), dtype=np.float32)
+    fill = _get_fill_value(obs_uint8, mode=fill_mode)
+
+    for i in range(0, len(coords), batch_size):
+        chunk = coords[i:i+batch_size]
+        n = len(chunk)
+
+        batch = np.repeat(obs_uint8[None, ...], n, axis=0).copy()
+        for j, (x, y) in enumerate(chunk):
+            batch[j, y:y+patch, x:x+patch, :] = fill
+
+        # log pi(action|s_masked) + best action after masking
+        logp_masked, _, best_masked = ppo_scratch_logprobs_batch(
+            actor_critic_net, device, batch,
+            actions=np.full((n,), action, dtype=np.int64)
+        )
+
+        scores = base_score_ref - logp_masked  # (n,)
+
+        if use_action_flip:
+            flips = (best_masked != base_best).astype(np.float32)
+            scores = scores * (1.0 + flip_weight * flips)
+
+        if clamp_positive:
+            scores = np.maximum(scores, 0.0)
+
+        for (x, y), s in zip(chunk, scores):
+            heat[y:y+patch, x:x+patch] += float(s)
+
+    heat = heat - heat.min()
+    mx = heat.max()
+    if mx > 1e-8:
+        heat = heat / mx
+
+    return heat, action
 
 
 
 def main():
-    import os
-    import argparse
-    import matplotlib.pyplot as plt
-
-    from wrappers import make_env
-    from dqn_agent import DQN_Agent,DQNCNN
+   
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="checkpoints/dqn_step_200000.pt")
@@ -273,7 +388,9 @@ def main():
     parser.add_argument("--outdir", type=str, default="outputs")
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--algo", type=str, default="dqn", choices=["dqn", "ppo"])
-    parser.add_argument("--ppo_model", type=str, default="runs/ppo/ppo_spaceinvaders_ckpt_2000000_steps.zip")
+    #parser.add_argument("--ppo_model", type=str, default="runs/ppo/ppo_spaceinvaders_ckpt_2000000_steps.zip")
+    parser.add_argument("--ppo_model", type=str, default="runs/ppo_scratch/ppo_scratch_final.pt")
+
 
     args = parser.parse_args()
 
@@ -307,10 +424,17 @@ def main():
         )
 
     else:
-        from stable_baselines3 import PPO
-        ppo_model = PPO.load(args.ppo_model, device=device)
-        heat, action = sarfa_heatmap_ppo(
-            ppo_model, obs,
+    
+        # load PPO scratch network
+          # la tua classe (stessa usata in training)
+
+        ckpt = torch.load(args.ppo_model, map_location=device)
+        actor_critic = ActorCriticCNN(in_channels=4, n_actions=n_actions).to(device)
+        actor_critic.load_state_dict(ckpt["net"])
+        actor_critic.eval()
+
+        heat, action = sarfa_heatmap_ppo_scratch(
+            actor_critic, device, obs,
             patch=args.patch, stride=args.stride,
             fill_mode="mean", batch_size=64,
             clamp_positive=True,
