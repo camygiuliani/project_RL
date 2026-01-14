@@ -7,7 +7,7 @@ import argparse
 import matplotlib.pyplot as plt
 
 from wrappers import make_env
-from ppo_scratch import ActorCriticCNN
+from ppo_agent import ActorCriticCNN
 from dqn_agent import DQN_Agent,DQNCNN
 
 
@@ -431,7 +431,6 @@ def main():
     else:
     
         # load PPO scratch network
-          # la tua classe (stessa usata in training)
 
         ckpt = torch.load(args.ppo_model, map_location=device)
         actor_critic = ActorCriticCNN(in_channels=4, n_actions=n_actions).to(device)
