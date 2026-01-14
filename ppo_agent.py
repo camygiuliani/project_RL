@@ -97,28 +97,10 @@ class PPO_Agent:
         trainer.train(total_steps=2_000_000)
     """
 
-    def __init__(
-        self,
-        env_id="ALE/SpaceInvaders-v5",
-        seed=0,
-        device=None,
-        # PPO hyperparams
-        lr=2.5e-4,
-        gamma=0.99,
-        gae_lambda=0.95,
-        clip_eps=0.1,
-        ent_coef=0.01,
-        vf_coef=0.5,
-        max_grad_norm=0.5,
-        # rollout/update
-        rollout_len=128,
-        n_epochs=4,
-        batch_size=256,
-        # logging/saving
-        save_dir="runs/ppo_scratch",
-        eval_every=100_000,
-        eval_episodes=10,
-    ):
+    def __init__(self, env_id="ALE/SpaceInvaders-v5", seed=0, device=None, lr=2.5e-4, gamma=0.99, gae_lambda=0.95, clip_eps=0.1,
+        ent_coef=0.01, vf_coef=0.5, max_grad_norm=0.5, rollout_len=128, n_epochs=4, batch_size=256,
+        save_dir="runs/ppo_scratch",eval_every=100_000,eval_episodes=10):
+        
         self.env_id = env_id
         self.seed = seed
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -140,8 +122,6 @@ class PPO_Agent:
         self.eval_episodes = eval_episodes
 
         os.makedirs(self.save_dir, exist_ok=True)
-
-        # env to infer shapes
         env = make_env(env_id=self.env_id, seed=self.seed)
         self.obs_shape = env.observation_space.shape  # (84,84,4)
         self.n_actions = env.action_space.n
