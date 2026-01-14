@@ -90,12 +90,7 @@ class ActorCriticCNN(nn.Module):
 
 
 class PPO_Agent:
-    """
-    PPO-Clip from scratch (discrete actions) designed to plug into your project.
-    Use:
-        trainer = PPOTrainer(env_id="ALE/SpaceInvaders-v5", seed=0)
-        trainer.train(total_steps=2_000_000)
-    """
+    
 
     def __init__(self, env_id="ALE/SpaceInvaders-v5", seed=0, device=None, lr=2.5e-4, gamma=0.99, gae_lambda=0.95, clip_eps=0.1,
         ent_coef=0.01, vf_coef=0.5, max_grad_norm=0.5, rollout_len=128, n_epochs=4, batch_size=256,
