@@ -6,10 +6,9 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import ale_py
-from stash.replay_buffer import ReplayBuffer
 import os
 import time
-from dqn_agent import DQN_Agent
+from dqn_agent import DQN_Agent, ReplayBuffer
 from wrappers import make_env
 from ppo_agent import PPO_Agent
 
