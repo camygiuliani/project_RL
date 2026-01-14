@@ -6,4 +6,4 @@ torch
 tqdm
 matplotlib
 imageio
-stable-baselines3[extra]
+
