@@ -65,7 +65,7 @@ def main():
     ####        PPO training  
     ####  
     if args.ppo:
-        print("Starting PPO (scratch) training...")
+        print("Starting PPO training...")
         trainer = PPO_Agent(
             env_id="ALE/SpaceInvaders-v5",
             seed=0,
