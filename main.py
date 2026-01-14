@@ -6,7 +6,7 @@ import torch
 import torch.nn.functional as F
 import torch.nn as nn
 import ale_py
-from replay_buffer import ReplayBuffer
+from stash.replay_buffer import ReplayBuffer
 import os
 import time
 from dqn_agent import DQN_Agent
