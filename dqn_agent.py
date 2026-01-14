@@ -16,19 +16,18 @@ class DQNCNN(nn.Module):
     def __init__(self, n_actions: int, in_channels: int = 4):
         super().__init__()
         # Input: (B, C, 84, 84)
-        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=8, stride=4)
-        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
-        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-
+        self.conv1 = nn.Conv2d(in_channels, 16, kernel_size=8, stride=4)
+        self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2)
+        #self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
         # Compute conv output size: 84 -> 20 -> 9 -> 7  (classic)
-        self.fc1 = nn.Linear(64 * 7 * 7, 512)
-        self.fc2 = nn.Linear(512, n_actions)
+        self.fc1 = nn.Linear(32*9*9, 256)
+        self.fc2 = nn.Linear(256, n_actions)
 
     def forward(self, x):
         # x: float in [0,1]
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
-        x = F.relu(self.conv3(x))
+        #x = F.relu(self.conv3(x))
         x = x.flatten(1)
         x = F.relu(self.fc1(x))
         return self.fc2(x)  # Q-values
@@ -38,16 +37,7 @@ def linear_eps(step, eps_start=1.0, eps_end=0.1, decay_steps=1_000_000):
     return eps_start + t * (eps_end - eps_start)
 
 class DQN_Agent:
-    def __init__(
-        self,
-        env: str,
-        n_channels: int,
-        n_actions: int,
-        device: torch.device,
-        gamma=0.99,
-        lr=1e-4,
-        double_dqn=True
-    ):
+    def __init__(self,env: str,n_channels: int, n_actions: int, device: torch.device, gamma=0.99, lr=1e-4,double_dqn=True):
 
         self.env = env
         self.n_channels = n_channels
@@ -56,12 +46,13 @@ class DQN_Agent:
         self.gamma = gamma
         self.double_dqn = double_dqn
         
+        #1.1 Initialize action-value function Q with random weights
         self.q = DQNCNN(self.n_actions, self.n_channels).to(self.device)
+        #1.2 Initialize target action-value function Q with the same weights
         self.tgt = DQNCNN(self.n_actions, self.n_channels).to(self.device)
-        
         self.tgt.load_state_dict(self.q.state_dict())
+        
         self.tgt.eval()
-
         self.optim = torch.optim.Adam(self.q.parameters(), lr=lr)
 
     @torch.no_grad()
@@ -88,21 +79,26 @@ class DQN_Agent:
         q_values = self.q(obs_t)  # (B,A)
         q_a = q_values.gather(1, acts_t.view(-1,1)).squeeze(1)
 
+        #6 set y_j
         with torch.no_grad():
             if self.double_dqn:
+            #DDQN
                 # action selection from online net
                 next_actions = torch.argmax(self.q(next_obs_t), dim=1)  # (B,)
                 # value from target net
                 next_q = self.tgt(next_obs_t).gather(1, next_actions.view(-1,1)).squeeze(1)
+
             else:
-                # vanilla DQN
+            #DQN
                 next_q = torch.max(self.tgt(next_obs_t), dim=1).values
 
+            #Bellman Equation  
             target = rews_t + self.gamma * (1.0 - dones_t) * next_q
 
         loss = F.smooth_l1_loss(q_a, target)
-
         self.optim.zero_grad(set_to_none=True)
+
+        #7 Gradient descent step
         loss.backward()
         torch.nn.utils.clip_grad_norm_(self.q.parameters(), 10.0)
         self.optim.step()
@@ -122,6 +118,8 @@ class DQN_Agent:
         env = make_env(env_id=self.env, seed=seed)
     
         obs_shape = env.observation_space.shape  # (84,84,4)
+
+        #1.3  Initialize replay memory
         rb = ReplayBuffer(buffer_size, obs_shape)
 
         obs, _ = env.reset(seed=seed)
@@ -134,11 +132,14 @@ class DQN_Agent:
         pbar = tqdm(range(1, total_steps + 1))
         for step in pbar:
             eps = linear_eps(step)
+            #2 Random action selection
             action = self.act(obs, eps)
 
+            #3 Execute action a in emulator and observe reward r and image x'
             next_obs, reward, terminated, truncated, _ = env.step(action)
             done = terminated or truncated
 
+            #4 Store transition (x,a,r,x',done) in replay memory
             rb.add(obs, action, reward, next_obs, done)
 
             obs = next_obs
@@ -153,6 +154,7 @@ class DQN_Agent:
 
             # learning
             if step > l_start and step % train_f == 0:
+                #5 Sample random minibatch of transitions (x,a,r,x',done) from replay memory
                 batch = rb.sample(batch_size)
                 loss = self.update(batch)
 
@@ -170,6 +172,31 @@ class DQN_Agent:
         #final save
         self.save(final_path)
 
+    def eval(self, seed, n_episodes: int = 10, path: str = None):    
+        if path is not None:
+            self.load(path)
+        else:
+            print("No checkpoint provided.")
+            return -1
+
+        env = make_env(env_id=self.env, seed=seed)
+        returns = []
+        for ep in range(n_episodes):
+            obs, _ = env.reset()
+            done = False
+            R = 0.0
+            while not done:
+                a = self.act(obs, eps=0.0)
+                obs, r, terminated, truncated, _ = env.step(a)
+                done = terminated or truncated
+                R += r
+            returns.append(R)
+            print(f"Episode {ep+1}: return={R:.1f}")
+
+        mean_return = float(np.mean(returns))
+        print("Mean return:", mean_return)
+        env.close()
+        return mean_return
     
     def sync_target(self):
         self.tgt.load_state_dict(self.q.state_dict())
