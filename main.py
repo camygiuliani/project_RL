@@ -11,7 +11,7 @@ import os
 import time
 from dqn_agent import DQN_Agent
 from wrappers import make_env
-from ppo_scratch import PPO_Agent
+from ppo_agent import PPO_Agent
 
 
 
