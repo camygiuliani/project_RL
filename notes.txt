@@ -7,7 +7,12 @@ python sarfa.py --model checkpoints/dqn_latest.pt
 
 
 ====16 Gennaio========
---vedere se plot sarfa è cambiato... se è più simile al paper?
--- mandare mail
+--vedere se plot sarfa è cambiato... se è più simile al paper? [OK]
+-- mandare mail [in proggress]
+
+=== 17 gennaio ===
+
+- quante immagini sarfa?
+- fare qualche appunto sugli algoritmi
 
 
