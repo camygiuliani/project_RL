@@ -94,7 +94,7 @@ class PPO_Agent:
 
     def __init__(self, env_id="ALE/SpaceInvaders-v5", seed=0, device=None, lr=2.5e-4, gamma=0.99, gae_lambda=0.95, clip_eps=0.1,
         ent_coef=0.01, vf_coef=0.5, max_grad_norm=0.5, rollout_len=128, n_epochs=4, batch_size=256,
-        save_dir="runs/ppo_scratch",eval_every=100_000,eval_episodes=10):
+        save_dir="runs/ppo",eval_every=100_000,eval_episodes=10):
         
         self.env_id = env_id
         self.seed = seed
@@ -255,13 +255,13 @@ class PPO_Agent:
             # eval + checkpoint
             if steps >= next_eval:
                 mean_r, std_r = self.eval()
-                print(f"[PPO scratch] step={steps} eval_mean={mean_r:.2f} eval_std={std_r:.2f}")
-                ckpt_path = os.path.join(self.save_dir, f"ppo_scratch_step_{steps}.pt")
+                print(f"[PPO ] step={steps} eval_mean={mean_r:.2f} eval_std={std_r:.2f}")
+                ckpt_path = os.path.join(self.save_dir, f"ppo_step_{steps}.pt")
                 self.save(ckpt_path)
                 next_eval += self.eval_every
 
         env.close()
-        final_path = os.path.join(self.save_dir, "ppo_scratch_final.pt")
+        final_path = os.path.join(self.save_dir, "ppo_final.pt")
         self.save(final_path)
-        print(f"Saved final PPO scratch checkpoint: {final_path}")
+        print(f"Saved final PPO checkpoint: {final_path}")
         return final_path
