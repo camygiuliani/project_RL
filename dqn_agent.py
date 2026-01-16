@@ -14,22 +14,20 @@ from wrappers import make_env
 class DQNCNN(nn.Module):
     def __init__(self, n_actions: int, in_channels: int = 4):
         super().__init__()
-        # Input: (B, C, 84, 84)
-        self.conv1 = nn.Conv2d(in_channels, 16, kernel_size=8, stride=4)
-        self.conv2 = nn.Conv2d(16, 32, kernel_size=4, stride=2)
-        #self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
-        # Compute conv output size: 84 -> 20 -> 9 -> 7  (classic)
-        self.fc1 = nn.Linear(32*9*9, 256)
-        self.fc2 = nn.Linear(256, n_actions)
+        self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=8, stride=4)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+    
+        self.fc1 = nn.Linear(7 * 7 * 64, 512) 
+        self.fc2 = nn.Linear(512, n_actions)
 
     def forward(self, x):
-        # x: float in [0,1]
         x = F.relu(self.conv1(x))
         x = F.relu(self.conv2(x))
-        #x = F.relu(self.conv3(x))
-        x = x.flatten(1)
+        x = F.relu(self.conv3(x))
+        x = x.reshape(x.size(0), -1) 
         x = F.relu(self.fc1(x))
-        return self.fc2(x)  # Q-values
+        return self.fc2(x)
     
 def linear_eps(step, eps_start=1.0, eps_end=0.1, decay_steps=1_000_000):
     t = min(step / decay_steps, 1.0)

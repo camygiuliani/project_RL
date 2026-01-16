@@ -72,10 +72,10 @@ def main():
             rollout_len=128,
             n_epochs=4,
             batch_size=256,
-            save_dir="runs/ppo_scratch",
+            save_dir="runs/ppo_16_jan",
             eval_every=100000,
         )
-        trainer.train(total_steps=2_000_000)
+        trainer.train(total_steps=100_000)
     
         
 if __name__ == "__main__":

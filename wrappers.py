@@ -49,8 +49,8 @@ class FrameStack(gym.Wrapper):
     def _get_obs(self):
         return np.concatenate(list(self.frames), axis=-1)
 
-def make_env(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4):
-    env = gym.make(env_id, frameskip=frame_skip, render_mode=None)
+def make_env(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4,render_mode=None):
+    env = gym.make(env_id, frameskip=frame_skip, render_mode=render_mode)
     env.reset(seed=seed)
     env = AtariPreprocess(env, width=84, height=84, grayscale=True)
     env = FrameStack(env, k=4)

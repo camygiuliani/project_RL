@@ -4,7 +4,11 @@ import torch.nn.functional as F
 import matplotlib.pyplot as plt
 import os
 import argparse
-import matplotlib.pyplot as plt
+import cv2
+import gymnasium as gym
+from datetime import datetime
+
+
 
 from wrappers import make_env
 from ppo_agent import ActorCriticCNN
@@ -42,112 +46,76 @@ def q_values_batch(agent, obs_uint8_batch):
 
 #heart of the SARFA-like method
 #in here we  generate the heatmap
-def sarfa_heatmap(
-    agent,
-    obs_uint8,
-    action=None,
-    patch=8,
-    stride=8,
-    fill_mode="mean",
-    batch_size=64,
-    use_advantage=True,
-    clamp_positive=True,
-    use_action_flip=True,
-    flip_weight=2.0
-):
-    """
-    SARFA-like improved:
-      - occlusion with fill_mode (mean instead of black)
-      - score on Advantage (more action-specific)
-      - batching for speed
+def sarfa_heatmap(agent, obs_input, patch=8, stride=4, 
+                  fill_mode="mean", batch_size=32, 
+                  use_advantage=True, clamp_positive=True,
+                  use_action_flip=True, flip_weight=2.0):
+    
+    # Rinominiamo
+    obs = obs_input
+    
+    # 1. Preparazione Input
+    if obs.dtype != np.uint8:
+        if obs.max() <= 1.0: 
+            obs = (obs * 255).astype(np.uint8)
+        else: 
+            obs = obs.astype(np.uint8)
+        
+    # Gym restituisce (H, W, C), PyTorch vuole (C, H, W)
+    obs_tensor = torch.tensor(obs, dtype=torch.float32, device=agent.device)
+    obs_tensor = obs_tensor.permute(2, 0, 1) 
+    obs_tensor = obs_tensor.unsqueeze(0) / 255.0
+    
+    # 2. Baseline
+    with torch.no_grad():
+        # --- FIX NOME VARIABILE ---
+        # Nel tuo agente la rete si chiama 'q', non 'q_net'
+        q_values = agent.q(obs_tensor) 
+        # --------------------------
+        
+        base_action = torch.argmax(q_values, dim=1).item()
+        base_q = q_values[0, base_action].item()
 
-    Returns: heatmap (H,W) in [0,1], action chosen
-    """
-    H, W, C = obs_uint8.shape
-    assert C == 4, "(84,84,4)"
+    # 3. Setup Griglia
+    H, W, C = obs.shape
+    coords = [(x, y) for y in range(0, H-patch+1, stride) for x in range(0, W-patch+1, stride)]
+    heatmap = np.zeros((H, W), dtype=np.float32)
 
-    # base Q
-    # Q at the original observation
-    base_q = q_values_batch(agent, obs_uint8[None, ...])[0]  # (A,)
-    #best action at the original observation
-    base_best = int(np.argmax(base_q))
+    if fill_mode == "mean": fill_val = np.mean(obs)
+    else: fill_val = 0
 
-    if action is None:
-        # if action not provided, use the best action chosen by the agent
-        action = int(np.argmax(base_q))
-
-    if use_advantage:
-        #how much better is the chosen action compared to others
-        base_adv = base_q - base_q.max()  # (A,)
-        # reference score for the chosen action
-        base_score_ref = base_adv[action]
-    else:
-        #we use Q values directly
-        base_score_ref = base_q[action]
-
-    # building patch grid
-    coords = [(x, y) for y in range(0, H - patch + 1, stride)
-                    for x in range(0, W - patch + 1, stride)]
-
-    #initialize heatmap and fill value
-    heat = np.zeros((H, W), dtype=np.float32)
-    fill = _get_fill_value(obs_uint8, mode=fill_mode)
-
-    # in the loop we process chunks of  batches
+    # 4. Ciclo Batch
     for i in range(0, len(coords), batch_size):
         chunk = coords[i:i+batch_size]
-        n = len(chunk)
+        batch_np = np.repeat(obs[None, ...], len(chunk), axis=0).copy()
 
-        # creating n copies of the observation
-        batch = np.repeat(obs_uint8[None, ...], n, axis=0).copy()
+        for idx, (x, y) in enumerate(chunk):
+            batch_np[idx, y:y+patch, x:x+patch, :] = fill_val 
 
-        #in j-th copy, occlude the patch at chunk[j]
-        for j, (x, y) in enumerate(chunk):
-            batch[j, y:y+patch, x:x+patch, :] = fill
+        batch_tensor = torch.tensor(batch_np, dtype=torch.float32, device=agent.device)
+        batch_tensor = batch_tensor.permute(0, 3, 1, 2) 
+        batch_tensor = batch_tensor / 255.0
 
-        #computes Q for all occluded observations in the batch
-        q_oc = q_values_batch(agent, batch)  # (n,A)
+        with torch.no_grad():
+            # --- FIX NOME VARIABILE ---
+            q_perturbed = agent.q(batch_tensor) 
+            # --------------------------
 
-        if use_action_flip:
-            #best action for each occluded observation
-            oc_best = np.argmax(q_oc, axis=1)              # (n,)
-            #if best action changed (1), we have a flip. Otherwise (0)
-            flips = (oc_best != base_best).astype(np.float32)  # (n,)
-        else:
-            #if not action flip, just zeros
-            flips = np.zeros((q_oc.shape[0],), dtype=np.float32)
-
-
-        if use_advantage:
-            #compute advantage for evey occluded observation
-            adv_oc = q_oc - q_oc.max(axis=1, keepdims=True)  # (n,A)
-            #how much the advantage for the chosen action changed when occluding
-            scores = base_score_ref - adv_oc[:, action]      # (n,)
-        else:
-            #using Q values directly
-            scores = base_score_ref - q_oc[:, action]
+        # 5. Calcolo Score
+        q_of_base_action = q_perturbed[:, base_action].cpu().numpy()
+        delta = base_q - q_of_base_action
 
         if use_action_flip:
-            #increase score if we had an action flip
-            scores = scores * (1.0 + flip_weight * flips)
+            new_actions = torch.argmax(q_perturbed, dim=1).cpu().numpy()
+            flip_mask = (new_actions != base_action)
+            delta[flip_mask] = np.maximum(delta[flip_mask], 0.1) * flip_weight
 
+        for idx, (x, y) in enumerate(chunk):
+            val = delta[idx]
+            if clamp_positive and val < 0: val = 0
+            heatmap[y:y+patch, x:x+patch] += val
 
-        # if occlusion helps, ignore it
-        if clamp_positive:
-            scores = np.maximum(scores, 0.0)
-
-        # add score on every pixel in the patch
-        for (x, y), s in zip(chunk, scores):
-            heat[y:y+patch, x:x+patch] += float(s)
-
-    # normalization to [0,1] for visualization
-    heat = heat - heat.min()
-    mx = heat.max()
-    if mx > 1e-8:
-        heat = heat / mx
-
-    return heat, action
-
+    return heatmap, base_action
 
 
 
@@ -199,93 +167,105 @@ def blur_heatmap(heat, k=7):
 
 #original patch=8 stride=8
 
-def sarfa_heatmap_ppo_scratch(
-    actor_critic_net,
-    device,
-    obs_uint8,
-    action=None,
-    patch=8,
-    stride=4,
-    fill_mode="mean",
-    batch_size=64,
-    clamp_positive=True,
-    use_action_flip=True,
-    flip_weight=2.0
-):
-    """
-    SARFA-like for PPO scratch:
-      score = log pi(a|s) - log pi(a|s_masked)
-    action flip: argmax policy changes after occlusion
+def sarfa_heatmap_ppo_scratch(model, device, obs_input, patch=8, stride=4, 
+                              fill_mode="mean", batch_size=32, 
+                              clamp_positive=True, use_action_flip=True, flip_weight=2.0):
+    
+    # Rinominiamo subito per sicurezza
+    obs = obs_input
 
-    Returns: heatmap (H,W) in [0,1], explained action
-    """
-    H, W, C = obs_uint8.shape
-    assert C == 4, "(84,84,4)"
+    # 1. Preparazione Input Base
+    if obs.dtype != np.uint8:
+        if obs.max() <= 1.0: 
+            obs = (obs * 255).astype(np.uint8)
+        else: 
+            obs = obs.astype(np.uint8)
 
-    # base: best action from logits
-    _, base_chosen, base_best = ppo_scratch_logprobs_batch(
-        actor_critic_net, device, obs_uint8[None, ...], actions=None
-    )
-    base_best = int(base_best[0])
+    # --- FIX DIMENSIONI (H,W,C -> C,H,W) ---
+    obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)
+    obs_tensor = obs_tensor.permute(2, 0, 1) # (4, 84, 84)
+    obs_tensor = obs_tensor.unsqueeze(0) / 255.0 # (1, 4, 84, 84)
+    # ---------------------------------------
 
-    if action is None:
-        action = int(base_chosen[0])  # explain deterministic best action
+    with torch.no_grad():
+        # --- FIX ATTRIBUTE ERROR ---
+        # Il modello restituisce (logits, values) oppure (distribution, values).
+        # Controlliamo cosa abbiamo ricevuto.
+        output, _ = model(obs_tensor)
+        
+        if hasattr(output, 'logits'):
+            logits = output.logits
+        else:
+            logits = output # È già il tensore dei logits
 
-    # reference logp of that action on original obs
-    base_score_ref = float(
-        ppo_scratch_logprobs_batch(
-            actor_critic_net, device, obs_uint8[None, ...], actions=np.array([action], dtype=np.int64)
-        )[0][0]
-    )
+        base_probs = torch.softmax(logits, dim=-1)
+        base_action = torch.argmax(base_probs, dim=-1).item()
+        base_prob_val = base_probs[0, base_action].item()
+        # ---------------------------
 
-    coords = [(x, y) for y in range(0, H - patch + 1, stride)
-                    for x in range(0, W - patch + 1, stride)]
+    # 2. Coordinate della griglia
+    H, W, C = obs.shape
+    y_range = range(0, H - patch + 1, stride)
+    x_range = range(0, W - patch + 1, stride)
+    coords = [(x, y) for y in y_range for x in x_range]
 
-    heat = np.zeros((H, W), dtype=np.float32)
-    fill = _get_fill_value(obs_uint8, mode=fill_mode)
+    heatmap = np.zeros((H, W), dtype=np.float32)
 
+    if fill_mode == "mean":
+        fill_val = np.mean(obs)
+    else:
+        fill_val = 0 
+
+    # 3. Ciclo su Batch
     for i in range(0, len(coords), batch_size):
         chunk = coords[i:i+batch_size]
-        n = len(chunk)
+        n_chunk = len(chunk)
 
-        batch = np.repeat(obs_uint8[None, ...], n, axis=0).copy()
-        for j, (x, y) in enumerate(chunk):
-            batch[j, y:y+patch, x:x+patch, :] = fill
+        # Creiamo il batch numpy: (Batch, H, W, C)
+        batch_np = np.repeat(obs[None, ...], n_chunk, axis=0).copy()
 
-        # log pi(action|s_masked) + best action after masking
-        logp_masked, _, best_masked = ppo_scratch_logprobs_batch(
-            actor_critic_net, device, batch,
-            actions=np.full((n,), action, dtype=np.int64)
-        )
+        # Applichiamo le maschere (Deep Masking su tutti i canali)
+        for idx, (x, y) in enumerate(chunk):
+            batch_np[idx, y:y+patch, x:x+patch, :] = fill_val 
 
-        scores = base_score_ref - logp_masked  # (n,)
+        # --- FIX DIMENSIONI BATCH ---
+        batch_tensor = torch.tensor(batch_np, dtype=torch.float32, device=device)
+        batch_tensor = batch_tensor.permute(0, 3, 1, 2) # (Batch, 4, 84, 84)
+        batch_tensor = batch_tensor / 255.0
+        # ----------------------------
+
+        with torch.no_grad():
+            # --- FIX ATTRIBUTE ERROR (Anche qui nel loop) ---
+            output_p, _ = model(batch_tensor)
+            
+            if hasattr(output_p, 'logits'):
+                logits_p = output_p.logits
+            else:
+                logits_p = output_p
+            
+            probs_p = torch.softmax(logits_p, dim=-1)
+            # -----------------------------------------------
+        
+        # 4. Calcolo Punteggio SARFA
+        new_probs_of_base_action = probs_p[:, base_action]
+        delta = base_prob_val - new_probs_of_base_action.cpu().numpy()
 
         if use_action_flip:
-            flips = (best_masked != base_best).astype(np.float32)
-            scores = scores * (1.0 + flip_weight * flips)
+            new_actions = torch.argmax(probs_p, dim=-1).cpu().numpy()
+            changed_mask = (new_actions != base_action)
+            delta[changed_mask] *= flip_weight
 
-        if clamp_positive:
-            scores = np.maximum(scores, 0.0)
+        for idx, (x, y) in enumerate(chunk):
+            score = delta[idx]
+            if clamp_positive and score < 0: score = 0
+            heatmap[y:y+patch, x:x+patch] += score
 
-        for (x, y), s in zip(chunk, scores):
-            heat[y:y+patch, x:x+patch] += float(s)
+    return heatmap, base_action
 
-    heat = heat - heat.min()
-    mx = heat.max()
-    if mx > 1e-8:
-        heat = heat / mx
-
-    return heat, action
-
-
-
+#original one
+'''
 def main():
-    import os
-    import argparse
-    import matplotlib.pyplot as plt
-
-    from wrappers import make_env
-    from dqn_agent import DQN_Agent,DQNCNN
+   
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="checkpoints/dqn_step_200000.pt")
@@ -296,7 +276,7 @@ def main():
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--algo", type=str, default="dqn", choices=["dqn", "ppo"])
     #parser.add_argument("--ppo_model", type=str, default="runs/ppo/ppo_spaceinvaders_ckpt_2000000_steps.zip")
-    parser.add_argument("--ppo_model", type=str, default="runs/ppo_scratch/ppo_scratch_final.pt")
+    parser.add_argument("--ppo_model", type=str, default="runs/ppo_16_jan/ppo_final.pt")
 
 
     args = parser.parse_args()
@@ -306,13 +286,28 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     env = make_env(env_id=args.env, seed=args.seed)
 
+    # 2. Crea l'ambiente "Fotografo" (Raw, Colori originali, Alta Risoluzione)
+    # Usiamo gym.make direttamente per avere l'emulatore puro senza filtri
+    raw_env = gym.make(args.env, render_mode="rgb_array")
+
+    # 3. Sincronizza i due ambienti
+    # Resettali entrambi con lo STESSO seed. 
+    # In Atari questo garantisce che la schermata iniziale sia identica.
+    obs, _ = env.reset(seed=args.seed)
+    _ = raw_env.reset(seed=args.seed)
+
+    # 4. Scatta la foto ad alta risoluzione (High-Res RGB)
+    rgb_bg = raw_env.render()
+    
+    # Chiudiamo subito raw_env per liberare memoria, abbiamo la foto che ci serve
+    raw_env.close()
+
     n_actions = env.action_space.n
     obs_shape = env.observation_space.shape  # (84,84,4)
 
     
 
-    #take an observation to analyze
-    obs, _ = env.reset(seed=args.seed)
+    
 
     if args.algo == "dqn":
 
@@ -355,33 +350,187 @@ def main():
     #np.save(npy_path, heat)
 
 
-    ####################################
-    #       VISUALIZATION PART         #
-    ####################################
+    # ####################################
+    #       VISUALIZATION PART           #
+    # ####################################
     
-    gray = obs[..., -1]  # invece di obs[..., 0]
-
-    # blurring slightly to have a nicer visualization like SARFA paper
+    # 1. Prepara la Heatmap
     heat_vis = blur_heatmap(heat, k=7)
-
-    # keep only top 10% activations
+    
+    # Filtra i valori bassi (Top 10%)
     thr = np.quantile(heat_vis, 0.90)
-    heat_vis = heat_vis.copy()
     heat_vis[heat_vis < thr] = 0.0
-    heat_vis = heat_vis / (heat_vis.max() + 1e-8)
+    
+    # Normalizza tra 0 e 1
+    if heat_vis.max() > 0:
+        heat_vis /= heat_vis.max()
 
-    plt.figure(figsize=(6, 6))
-    plt.imshow(gray, cmap="gray", vmin=0, vmax=255)
-    plt.imshow(heat_vis, cmap="Blues", alpha=0.75, vmin=0.0, vmax=1.0)
+    # 2. Ridimensiona la Heatmap per adattarla allo sfondo "Reale"
+    # rgb_bg è l'immagine che abbiamo catturato all'inizio (es. 160x210)
+    # heat_vis è piccola (es. 84x84). La ingrandiamo.
+    if rgb_bg.shape[:2] != heat_vis.shape:
+        heat_vis = cv2.resize(heat_vis, (rgb_bg.shape[1], rgb_bg.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+    # 3. Crea l'Overlay colorato
+    cmap = plt.get_cmap('jet')
+    overlay = cmap(heat_vis)  # (H, W, 4)
+
+    # Applica trasparenza:
+    # 0 dove non c'è calore, 0.6 dove c'è calore
+    overlay[..., 3] = np.where(heat_vis > 0, 0.6, 0.0)
+
+    # 4. Disegna
+    plt.figure(figsize=(8, 8))
+    
+    # Sfondo REALE (Navicella e alieni disegnati bene)
+    plt.imshow(rgb_bg)
+    
+    # Overlay della Heatmap
+    plt.imshow(overlay)
+    
     plt.axis("off")
     plt.title(f"SARFA (action={action}) - {args.algo}")
-    png_path = os.path.join(args.outdir, f"sarfa_overlay_with_{args.algo}.png")
+    
+    timestamp = datetime.now().strftime("%H_%M")
+    png_path = os.path.join(args.outdir, f"sarfa_hd_overlay_{args.algo}_{timestamp}.png")
+    
     plt.savefig(png_path, dpi=200, bbox_inches="tight", pad_inches=0)
     plt.close()
 
-
     env.close()
+    print(f"[SARFA] Saved: {png_path}")
+'''
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", type=str, default="checkpoints/dqn_step_200000.pt")
+    parser.add_argument("--env", type=str, default="ALE/SpaceInvaders-v5")
+    parser.add_argument("--patch", type=int, default=8)
+    parser.add_argument("--stride", type=int, default=4)
+    parser.add_argument("--outdir", type=str, default="outputs")
+    parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument("--algo", type=str, default="dqn", choices=["dqn", "ppo"])
+    parser.add_argument("--ppo_model", type=str, default="runs/ppo_16_jan/ppo_final.pt")
+
+    args = parser.parse_args()
+
+    os.makedirs(args.outdir, exist_ok=True)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # 1. SETUP AMBIENTE
+    try:
+        env = make_env(env_id=args.env, seed=args.seed, render_mode="rgb_array")
+    except:
+        env = make_env(env_id=args.env, seed=args.seed)
+
+    # 2. RESET E WARMUP
+    obs, _ = env.reset(seed=args.seed)
     
+    print("Eseguo warmup (50 step)...")
+    for _ in range(50):
+        action = env.action_space.sample()
+        obs, _, terminated, truncated, _ = env.step(action)
+        if terminated or truncated:
+            obs, _ = env.reset()
+
+    # 3. ESTRAZIONE DIRETTA SCREENSHOT
+    ale = None
+    current_env = env
+    while hasattr(current_env, 'env'):
+        if hasattr(current_env, 'ale'):
+            ale = current_env.ale
+            break
+        current_env = current_env.env
+    if ale is None and hasattr(current_env, 'ale'):
+        ale = current_env.ale
+
+    rgb_bg = None
+    if ale is not None:
+        try:
+            rgb_bg = ale.getScreenRGB()
+        except:
+            pass
+    if rgb_bg is None:
+        rgb_bg = env.render()
+
+    # 4. CALCOLO SARFA
+    print(f"Calcolo SARFA con patch={args.patch} su device={device}...")
+    n_actions = env.action_space.n
+    obs_shape = env.observation_space.shape
+
+    # Assicuriamoci che l'input sia corretto
+    if obs.max() <= 1.0:
+        print("[WARNING] L'osservazione sembra normalizzata (0-1). Moltiplico per 255.")
+        obs = (obs * 255).astype(np.uint8)
+
+    if args.algo == "dqn":
+        agent = DQN_Agent(args.env, obs_shape[2], n_actions, device, double_dqn=False)   
+        agent.load(args.model)
+        
+        heat, action = sarfa_heatmap(
+            agent, obs,
+            patch=args.patch, stride=args.stride,
+            fill_mode="mean", batch_size=64,
+            use_advantage=True, clamp_positive=True,
+            use_action_flip=True, flip_weight=2.0
+        )
+    else:
+        ckpt = torch.load(args.ppo_model, map_location=device)
+        actor_critic = ActorCriticCNN(in_channels=4, n_actions=n_actions).to(device)
+        actor_critic.load_state_dict(ckpt["net"])
+        actor_critic.eval()
+        heat, action = sarfa_heatmap_ppo_scratch(actor_critic, device, obs, patch=args.patch, stride=args.stride, fill_mode="mean", batch_size=64)
+
+    # DEBUG: Controlliamo se la heatmap è vuota
+    print(f"[DEBUG] Heatmap Max Value: {heat.max():.6f}")
+    print(f"[DEBUG] Heatmap Mean Value: {heat.mean():.6f}")
+
+    if heat.max() == 0:
+        print("[ERRORE] La heatmap è completamente vuota (tutti zeri)!")
+        print(" -> Prova a ridurre la dimensione della patch o controllare se il modello predice sempre la stessa azione.")
+
+    # 5. VISUALIZZAZIONE ROBUSTA
+    heat_vis = blur_heatmap(heat, k=7)
+    
+    # Rimuoviamo il threshold aggressivo se i valori sono bassi
+    # Usiamo una normalizzazione Min-Max standard
+    if heat_vis.max() > 0:
+        heat_vis = (heat_vis - heat_vis.min()) / (heat_vis.max() - heat_vis.min() + 1e-8)
+        
+        # Applichiamo un threshold più morbido: mostriamo tutto ciò che è sopra la media
+        thr = np.mean(heat_vis) 
+        heat_vis[heat_vis < thr] = 0.0
+    
+    # Preparazione immagine background
+    if hasattr(rgb_bg, 'detach'): rgb_bg = rgb_bg.detach().cpu().numpy()
+    rgb_bg = np.array(rgb_bg)
+    if len(rgb_bg.shape) == 2:
+        rgb_bg = np.stack([rgb_bg]*3, axis=-1)
+
+    # Resize Heatmap
+    if rgb_bg.shape[:2] != heat_vis.shape:
+        heat_vis = cv2.resize(heat_vis, (rgb_bg.shape[1], rgb_bg.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+    # Overlay
+    cmap = plt.get_cmap('jet') # O 'hot' per vedere meglio il rosso
+    overlay = cmap(heat_vis)
+    
+    # Trasparenza adattiva: più è caldo, più è opaco (fino a 0.7)
+    overlay[..., 3] = heat_vis * 0.7 
+
+    plt.figure(figsize=(10, 10))
+    plt.imshow(rgb_bg)
+    plt.imshow(overlay)
+    
+    plt.axis("off")
+    plt.title(f"SARFA (Action: {action}) - {args.algo} - MaxHeat: {heat.max():.4f}")
+    
+    timestamp = datetime.now().strftime("%H_%M_%S")
+    png_path = os.path.join(args.outdir, f"sarfa_{args.algo}_{timestamp}.png")
+    
+    plt.savefig(png_path, dpi=200, bbox_inches="tight", pad_inches=0)
+    plt.close()
+    env.close()
     print(f"[SARFA] Saved: {png_path}")
 
 if __name__ == "__main__":
