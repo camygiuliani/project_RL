@@ -6,3 +6,8 @@ python eval_dqn.py --model checkpoints/dqn_latest.pt
 python sarfa.py --model checkpoints/dqn_latest.pt
 
 
+====16 Gennaio========
+--vedere se plot sarfa è cambiato... se è più simile al paper?
+-- mandare mail
+
+
