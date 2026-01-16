@@ -149,116 +149,7 @@ def sarfa_heatmap(
     return heat, action
 
 
-'''
-# =========================
-# PPO version (SB3)
-# =========================
 
-@torch.no_grad()
-def ppo_logprobs_batch(sb3_model, obs_uint8_batch, actions=None):
-    """
-    sb3_model: stable_baselines3.PPO loaded model
-    obs_uint8_batch: (N,H,W,4) uint8   (your wrapper format)
-    actions: optional (N,) int actions. If None, we use argmax of policy probs.
-
-    Returns:
-      logp: (N,) float  log pi(a|s) for the chosen action (either given or argmax)
-      chosen_actions: (N,) int
-      best_actions: (N,) int  argmax_a pi(a|s)
-    """
-    device = sb3_model.policy.device
-
-    x = torch.from_numpy(obs_uint8_batch).to(device)
-    x = x.permute(0, 3, 1, 2).float() / 255.0  # NCHW
-
-    # SB3 distribution
-    dist = sb3_model.policy.get_distribution(x)
-
-    # Get policy probabilities to compute argmax action
-    probs = dist.distribution.probs  # (N, A) for Categorical
-    best_actions = torch.argmax(probs, dim=1)
-
-    if actions is None:
-        chosen_actions = best_actions
-    else:
-        chosen_actions = torch.as_tensor(actions, device=device, dtype=torch.long)
-
-    logp = dist.log_prob(chosen_actions)  # (N,)
-    return logp.detach().cpu().numpy(), chosen_actions.detach().cpu().numpy(), best_actions.detach().cpu().numpy()
-
-
-def sarfa_heatmap_ppo(
-    sb3_model,
-    obs_uint8,
-    action=None,
-    patch=8,
-    stride=8,
-    fill_mode="mean",
-    batch_size=64,
-    clamp_positive=True,
-    use_action_flip=True,
-    flip_weight=2.0
-):
-    """
-    SARFA-like for PPO:
-      score = log pi(a|s) - log pi(a|s_masked)
-    action flip: argmax policy action changes after occlusion
-
-    Returns: heatmap (H,W) in [0,1], explained action
-    """
-    H, W, C = obs_uint8.shape
-    assert C == 4, "(84,84,4)"
-
-    base_logp, base_chosen, base_best = ppo_logprobs_batch(sb3_model, obs_uint8[None, ...], actions=None)
-    base_best = int(base_best[0])
-
-    if action is None:
-        # explain the policy argmax action (deterministic)
-        action = int(base_chosen[0])
-
-    # reference score
-    base_score_ref = float(ppo_logprobs_batch(sb3_model, obs_uint8[None, ...], actions=np.array([action]))[0][0])
-
-    coords = [(x, y) for y in range(0, H - patch + 1, stride)
-                    for x in range(0, W - patch + 1, stride)]
-
-    heat = np.zeros((H, W), dtype=np.float32)
-    fill = _get_fill_value(obs_uint8, mode=fill_mode)
-
-    for i in range(0, len(coords), batch_size):
-        chunk = coords[i:i+batch_size]
-        n = len(chunk)
-
-        batch = np.repeat(obs_uint8[None, ...], n, axis=0).copy()
-        for j, (x, y) in enumerate(chunk):
-            batch[j, y:y+patch, x:x+patch, :] = fill
-
-        # log pi(action|s_masked)
-        logp_masked, _, best_masked = ppo_logprobs_batch(
-            sb3_model, batch, actions=np.full((n,), action, dtype=np.int64)
-        )
-
-        # base - masked
-        scores = base_score_ref - logp_masked  # (n,)
-
-        if use_action_flip:
-            flips = (best_masked != base_best).astype(np.float32)
-            scores = scores * (1.0 + flip_weight * flips)
-
-        if clamp_positive:
-            scores = np.maximum(scores, 0.0)
-
-        for (x, y), s in zip(chunk, scores):
-            heat[y:y+patch, x:x+patch] += float(s)
-
-    heat = heat - heat.min()
-    mx = heat.max()
-    if mx > 1e-8:
-        heat = heat / mx
-
-    return heat, action
-
-'''
 
 # =========================
 # PPO version (SCRATCH)
@@ -296,6 +187,17 @@ def ppo_scratch_logprobs_batch(actor_critic_net, device, obs_uint8_batch, action
         best_actions.detach().cpu().numpy()
     )
 
+def blur_heatmap(heat, k=7):
+    # box blur kxk
+    pad = k // 2
+    h = np.pad(heat, ((pad, pad), (pad, pad)), mode="edge")
+    out = np.zeros_like(heat, dtype=np.float32)
+    for y in range(out.shape[0]):
+        for x in range(out.shape[1]):
+            out[y, x] = h[y:y+k, x:x+k].mean()
+    return out
+
+#original patch=8 stride=8
 
 def sarfa_heatmap_ppo_scratch(
     actor_critic_net,
@@ -303,7 +205,7 @@ def sarfa_heatmap_ppo_scratch(
     obs_uint8,
     action=None,
     patch=8,
-    stride=8,
+    stride=4,
     fill_mode="mean",
     batch_size=64,
     clamp_positive=True,
@@ -389,7 +291,7 @@ def main():
     parser.add_argument("--model", type=str, default="checkpoints/dqn_step_200000.pt")
     parser.add_argument("--env", type=str, default="ALE/SpaceInvaders-v5")
     parser.add_argument("--patch", type=int, default=8)
-    parser.add_argument("--stride", type=int, default=8)
+    parser.add_argument("--stride", type=int, default=4)
     parser.add_argument("--outdir", type=str, default="outputs")
     parser.add_argument("--seed", type=int, default=123)
     parser.add_argument("--algo", type=str, default="dqn", choices=["dqn", "ppo"])
@@ -452,17 +354,31 @@ def main():
     npy_path = os.path.join(args.outdir, "sarfa_heatmap.npy")
     #np.save(npy_path, heat)
 
-    # overlay heatmap on grayscale image
-    gray = obs[..., 0]  # (84,84)
-    plt.figure()
-    plt.imshow(gray, cmap="gray")
-    plt.imshow(heat, alpha=0.5)
-    plt.title(f"SARFA-like heatmap (action={action}) with {args.algo} ")
+
+    ####################################
+    #       VISUALIZATION PART         #
+    ####################################
+    
+    gray = obs[..., -1]  # invece di obs[..., 0]
+
+    # blurring slightly to have a nicer visualization like SARFA paper
+    heat_vis = blur_heatmap(heat, k=7)
+
+    # keep only top 10% activations
+    thr = np.quantile(heat_vis, 0.90)
+    heat_vis = heat_vis.copy()
+    heat_vis[heat_vis < thr] = 0.0
+    heat_vis = heat_vis / (heat_vis.max() + 1e-8)
+
+    plt.figure(figsize=(6, 6))
+    plt.imshow(gray, cmap="gray", vmin=0, vmax=255)
+    plt.imshow(heat_vis, cmap="Blues", alpha=0.75, vmin=0.0, vmax=1.0)
     plt.axis("off")
-    path_title= "sarfa_overlay_with_"+args.algo+".png"
-    png_path = os.path.join(args.outdir, path_title)
-    plt.savefig(png_path, dpi=150, bbox_inches="tight")
+    plt.title(f"SARFA (action={action}) - {args.algo}")
+    png_path = os.path.join(args.outdir, f"sarfa_overlay_with_{args.algo}.png")
+    plt.savefig(png_path, dpi=200, bbox_inches="tight", pad_inches=0)
     plt.close()
+
 
     env.close()
     
