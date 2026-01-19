@@ -1,3 +1,4 @@
+from html import parser
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -13,7 +14,7 @@ from datetime import datetime
 from wrappers import make_env
 from ppo_agent import ActorCriticCNN
 from dqn_agent import DQN_Agent,DQNCNN
-from sac_discrete import SACDiscreteAgent
+from sac_discrete import DiscreteActor
 
 
 def _get_fill_value(obs_uint8, mode="mean"):
@@ -139,7 +140,12 @@ def ppo_scratch_logprobs_batch(actor_critic_net, device, obs_uint8_batch, action
     x = torch.from_numpy(obs_uint8_batch).to(device)
     x = x.permute(0, 3, 1, 2).float() / 255.0  # NCHW
 
-    logits, _ = actor_critic_net(x)  # logits: (N,A)
+    out = actor_critic_net(x)
+    if isinstance(out, (tuple, list)):
+        logits = out[0]   # PPO: (logits, value)
+    else:
+        logits = out      # SAC: logits only
+
     dist = torch.distributions.Categorical(logits=logits)
 
     best_actions = torch.argmax(logits, dim=1)
@@ -165,6 +171,71 @@ def blur_heatmap(heat, k=7):
         for x in range(out.shape[1]):
             out[y, x] = h[y:y+k, x:x+k].mean()
     return out
+
+def sarfa_heatmap_policy_logp(
+    policy_net, device, obs_input,
+    patch=8, stride=4, fill_mode="mean", batch_size=32,
+    clamp_positive=True, use_action_flip=True, flip_weight=2.0,
+    occlude_only_last_frame=True
+):
+    obs = obs_input
+    if obs.dtype != np.uint8:
+        obs = (obs * 255).astype(np.uint8) if obs.max() <= 1.0 else obs.astype(np.uint8)
+
+    H, W, C = obs.shape
+    assert C == 4, "Expected (84,84,4) stacked frames"
+
+    # base action + base logp
+    base_logp, _, base_best = ppo_scratch_logprobs_batch(
+        policy_net, device, obs[None, ...], actions=None
+    )
+    base_action = int(base_best[0])  # explain argmax action
+    base_logp = float(
+        ppo_scratch_logprobs_batch(
+            policy_net, device, obs[None, ...], actions=np.array([base_action], dtype=np.int64)
+        )[0][0]
+    )
+
+    coords = [(x, y) for y in range(0, H - patch + 1, stride)
+                    for x in range(0, W - patch + 1, stride)]
+    heatmap = np.zeros((H, W), dtype=np.float32)
+
+    fill = _get_fill_value(obs, mode=fill_mode)  # (1,1,4) or 0
+
+    for i in range(0, len(coords), batch_size):
+        chunk = coords[i:i + batch_size]
+        n = len(chunk)
+        batch_np = np.repeat(obs[None, ...], n, axis=0).copy()
+
+        for j, (x, y) in enumerate(chunk):
+            if occlude_only_last_frame:
+                # occlude only last frame to avoid destroying motion info
+                if isinstance(fill, np.ndarray):
+                    batch_np[j, y:y+patch, x:x+patch, -1] = fill[0, 0, -1]
+                else:
+                    batch_np[j, y:y+patch, x:x+patch, -1] = fill
+            else:
+                batch_np[j, y:y+patch, x:x+patch, :] = fill
+
+        logp_masked, _, best_masked = ppo_scratch_logprobs_batch(
+            policy_net, device, batch_np,
+            actions=np.full((n,), base_action, dtype=np.int64)
+        )
+
+        delta = base_logp - logp_masked  # higher = more important
+
+        if use_action_flip:
+            flips = (best_masked != base_action).astype(np.float32)
+            delta = delta * (1.0 + flip_weight * flips)
+
+        if clamp_positive:
+            delta = np.maximum(delta, 0.0)
+
+        for (x, y), s in zip(chunk, delta):
+            heatmap[y:y+patch, x:x+patch] += float(s)
+
+    return heatmap, base_action
+
 
 #original patch=8 stride=8
 
@@ -272,8 +343,9 @@ def main():
     parser.add_argument("--stride", type=int, default=4)
     parser.add_argument("--outdir", type=str, default="outputs")
     parser.add_argument("--seed", type=int, default=123)
-    parser.add_argument("--algo", type=str, default="dqn", choices=["dqn", "ppo"])
+    parser.add_argument("--algo", type=str, default="dqn", choices=["dqn", "ppo","sac"])
     parser.add_argument("--ppo_model", type=str, default="runs/ppo_16_jan/ppo_final.pt")
+    parser.add_argument("--sac_model", type=str, default="runs/sac_discrete/sac_final.pt")
 
     args = parser.parse_args()
 
@@ -289,7 +361,7 @@ def main():
     # 2. RESET E WARMUP
     obs, _ = env.reset(seed=args.seed)
     
-    print("Eseguo warmup (50 step)...")
+    print("Doing warmup (50 step)...")
     for _ in range(50):
         action = env.action_space.sample()
         obs, _, terminated, truncated, _ = env.step(action)
@@ -317,13 +389,13 @@ def main():
         rgb_bg = env.render()
 
     # 4. CALCOLO SARFA
-    print(f"Calcolo SARFA con patch={args.patch} su device={device}...")
+    print(f"Computing Sarfa for patch={args.patch} on device={device}...")
     n_actions = env.action_space.n
     obs_shape = env.observation_space.shape
 
     # Assicuriamoci che l'input sia corretto
     if obs.max() <= 1.0:
-        print("[WARNING] L'osservazione sembra normalizzata (0-1). Moltiplico per 255.")
+        print("[WARNING] observation is normalized (0-1). Multiplying by 255.")
         obs = (obs * 255).astype(np.uint8)
 
     if args.algo == "dqn":
@@ -337,22 +409,38 @@ def main():
             use_advantage=True, clamp_positive=True,
             use_action_flip=True, flip_weight=2.0
         )
-    else:
+
+    elif args.algo == "ppo":
         ckpt = torch.load(args.ppo_model, map_location=device)
         actor_critic = ActorCriticCNN(in_channels=4, n_actions=n_actions).to(device)
         actor_critic.load_state_dict(ckpt["net"])
         actor_critic.eval()
         heat, action = sarfa_heatmap_ppo_scratch(actor_critic, device, obs, patch=args.patch, stride=args.stride, fill_mode="mean", batch_size=64)
+    
+    else:  # sac
+        ckpt = torch.load(args.sac_model, map_location=device)
+        sac_actor = DiscreteActor(in_channels=4, n_actions=n_actions).to(device)
+        sac_actor.load_state_dict(ckpt["actor"])
+        sac_actor.eval()
+
+        heat, action = sarfa_heatmap_policy_logp(
+            sac_actor, device, obs,
+            patch=args.patch, stride=args.stride,
+            fill_mode="mean", batch_size=64,
+            clamp_positive=True, use_action_flip=True, flip_weight=2.0,
+            occlude_only_last_frame=True
+        )
+
 
     # DEBUG: Controlliamo se la heatmap è vuota
-    print(f"[DEBUG] Heatmap Max Value: {heat.max():.6f}")
-    print(f"[DEBUG] Heatmap Mean Value: {heat.mean():.6f}")
+    #print(f"[DEBUG] Heatmap Max Value: {heat.max():.6f}")
+    #print(f"[DEBUG] Heatmap Mean Value: {heat.mean():.6f}")
 
     if heat.max() == 0:
-        print("[ERRORE] La heatmap è completamente vuota (tutti zeri)!")
-        print(" -> Prova a ridurre la dimensione della patch o controllare se il modello predice sempre la stessa azione.")
+        print("[ERROR] Heatmap is all zeros!")
+        print(" -> Try reducing the patch size or check if the model always predicts the same action.")
 
-    # 5. VISUALIZZAZIONE ROBUSTA
+    # robust visualization
     heat_vis = blur_heatmap(heat, k=7)
     
     # Rimuoviamo il threshold aggressivo se i valori sono bassi
@@ -364,7 +452,7 @@ def main():
         thr = np.mean(heat_vis) 
         heat_vis[heat_vis < thr] = 0.0
     
-    # Preparazione immagine background
+    # background image loading....
     if hasattr(rgb_bg, 'detach'): rgb_bg = rgb_bg.detach().cpu().numpy()
     rgb_bg = np.array(rgb_bg)
     if len(rgb_bg.shape) == 2:
@@ -378,7 +466,7 @@ def main():
     cmap = plt.get_cmap('jet') # O 'hot' per vedere meglio il rosso
     overlay = cmap(heat_vis)
     
-    # Trasparenza adattiva: più è caldo, più è opaco (fino a 0.7)
+    # adaptive transparency the more is hot, the more is opaque (up to 0.7)
     overlay[..., 3] = heat_vis * 0.7 
 
     plt.figure(figsize=(10, 10))
