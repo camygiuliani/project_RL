@@ -14,3 +14,4 @@ Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
 - [1] [Explain Your Move: Understanding Agent Actions Using Specific and Relevant Feature Attribution ](https://arxiv.org/abs/1912.12191)
 - [2] [ Free invaders online game](https://freeinvaders.org/)
 - [3]  [Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor](https://arxiv.org/pdf/1801.01290)
+- [4] [Proximal Policy Optimization Algorithms](https://arxiv.org/abs/1707.06347)
