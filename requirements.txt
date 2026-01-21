@@ -6,4 +6,5 @@ torch
 tqdm
 matplotlib
 imageio
+pyyaml
 
