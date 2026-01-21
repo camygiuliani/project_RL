@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from tqdm import tqdm
 
 from wrappers import make_env
 
@@ -90,8 +91,6 @@ class ActorCriticCNN(nn.Module):
 
 
 class PPO_Agent:
-    
-
     def __init__(self, env_id="ALE/SpaceInvaders-v5", seed=0, device=None, lr=2.5e-4, gamma=0.99, gae_lambda=0.95, clip_eps=0.1,
         ent_coef=0.01, vf_coef=0.5, max_grad_norm=0.5, rollout_len=128, n_epochs=4, batch_size=256,
         save_dir="runs/ppo",eval_every=100_000,eval_episodes=10):
@@ -215,53 +214,60 @@ class PPO_Agent:
                 nn.utils.clip_grad_norm_(self.net.parameters(), self.max_grad_norm)
                 self.opt.step()
 
-    def train(self, total_steps=2_000_000):
+    def train(self, total_steps=1_000_000):
+        final_path = os.path.join(self.save_dir, f"ppo_{total_steps}.pt")
+
         env = make_env(env_id=self.env_id, seed=self.seed)
         obs, _ = env.reset(seed=self.seed)
 
-        steps = 0
+        step = 0
         next_eval = self.eval_every
 
-        while steps < total_steps:
-            self.buffer.reset()
+        with tqdm(total=total_steps, desc="Training PPO", unit="step") as pbar:
+            while step < total_steps:
+                self.buffer.reset()
 
-            # collect rollout
-            for _ in range(self.rollout_len):
-                action, logp, value = self._act(obs)
-                next_obs, reward, term, trunc, _ = env.step(action)
-                done = term or trunc
+                # collect rollout
+                for _ in range(self.rollout_len):
+                    action, logp, value = self._act(obs)
+                    next_obs, reward, term, trunc, _ = env.step(action)
+                    done = term or trunc
 
-                self.buffer.add(obs, action, reward, done, value, logp)
+                    self.buffer.add(obs, action, reward, done, value, logp)
 
-                obs = next_obs
-                steps += 1
+                    obs = next_obs
+                    step += 1
+                    
+                    # 3. Update the progress bar by 1 step
+                    pbar.update(1)
 
-                if done:
-                    obs, _ = env.reset()
+                    if done:
+                        obs, _ = env.reset()
 
-                if steps >= total_steps:
-                    break
+                    if step >= total_steps:
+                        break
 
-            # bootstrap value for last state
-            last_v = self._value(obs)
-            self.buffer.full = True
-            self.buffer.compute_returns_and_advantages(last_value=last_v)
+                # bootstrap value for last state
+                last_v = self._value(obs)
+                self.buffer.full = True
+                self.buffer.compute_returns_and_advantages(last_value=last_v)
 
-            # update
-            self.net.train()
-            self._update()
-            self.net.eval()
+                # update
+                self.net.train()
+                self._update()
+                self.net.eval()
 
-            # eval + checkpoint
-            if steps >= next_eval:
-                mean_r, std_r = self.eval()
-                print(f"[PPO ] step={steps} eval_mean={mean_r:.2f} eval_std={std_r:.2f}")
-                ckpt_path = os.path.join(self.save_dir, f"ppo_step_{steps}.pt")
-                self.save(ckpt_path)
-                next_eval += self.eval_every
+                # eval + checkpoint
+                if step >= next_eval:
+                    mean_r, std_r = self.eval()
+        
+                    tqdm.write(f"[PPO ] step={step} eval_mean={mean_r:.2f} eval_std={std_r:.2f}")
+    
+                    ckpt_path = f"checkpoints/ppo_step_{step}.pt"
+                    self.save(ckpt_path)
+                    next_eval += self.eval_every
 
         env.close()
-        final_path = os.path.join(self.save_dir, "ppo_final.pt")
         self.save(final_path)
-        print(f"Saved final PPO checkpoint: {final_path}")
+        print(f"Saved final PPO: {final_path}")
         return final_path

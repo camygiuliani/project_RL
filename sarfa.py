@@ -12,8 +12,8 @@ from datetime import datetime
 
 
 from wrappers import make_env
-from ppo_agent import ActorCriticCNN
-from dqn_agent import DQN_Agent,DQNCNN
+from ppo import ActorCriticCNN
+from dqn import DQN_Agent,DQNCNN
 from sac_discrete import DiscreteActor
 
 

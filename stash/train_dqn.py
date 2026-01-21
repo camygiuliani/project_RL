@@ -8,7 +8,7 @@ import ale_py
 from wrappers import make_env
 from replay_buffer import ReplayBuffer
 from networks import DQNCNN
-from dqn_agent import DQN_Agent
+from dqn import DQN_Agent
 
 def linear_eps(step, eps_start=1.0, eps_end=0.1, decay_steps=1_000_000):
     t = min(step / decay_steps, 1.0)

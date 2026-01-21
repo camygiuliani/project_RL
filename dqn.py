@@ -34,7 +34,8 @@ def linear_eps(step, eps_start=1.0, eps_end=0.1, decay_steps=1_000_000):
     return eps_start + t * (eps_end - eps_start)
 
 class DQN_Agent:
-    def __init__(self,env: str,n_channels: int, n_actions: int, device: torch.device, gamma=0.99, lr=1e-4,double_dqn=True):
+    def __init__(self,env: str,n_channels: int, n_actions: int, device: torch.device, gamma=0.99, lr=1e-4,
+                 double_dqn=True):
 
         self.env = env
         self.n_channels = n_channels
@@ -103,17 +104,16 @@ class DQN_Agent:
         return float(loss.item())
     
     def train(self, batch_size:int, buffer_size:int, total_steps:int,
-               l_start:int, train_f:int, target_update:int, n_checkpoints:int):
+               l_start:int, train_f:int, target_update:int, n_checkpoints:int,
+               save_dir: str = "runs/dqn"):
         
-        seed = 0
-        
+        seed = 0  
         threshold = total_steps/n_checkpoints 
         c_threshold = threshold
-        final_path = f"checkpoints/dqn_{total_steps}.pt"
+        final_path = os.path.join(save_dir, f"dqn_{total_steps}.pt")
 
         print(f"Using device: {self.device}")
         env = make_env(env_id=self.env, seed=seed)
-    
         obs_shape = env.observation_space.shape  # (84,84,4)
 
         #1.3  Initialize replay memory
