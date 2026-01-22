@@ -11,7 +11,7 @@ from wrappers import make_env
 
 
 
-class DQNCNN(nn.Module):
+class DDQNCNN(nn.Module):
     def __init__(self, n_actions: int, in_channels: int = 4):
         super().__init__()
         self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=8, stride=4)
@@ -33,7 +33,7 @@ def linear_eps(step, eps_start=1.0, eps_end=0.1, decay_steps=1_000_000):
     t = min(step / decay_steps, 1.0)
     return eps_start + t * (eps_end - eps_start)
 
-class DQN_Agent:
+class DDQN_Agent:
     def __init__(self,env: str,n_channels: int, n_actions: int, device: torch.device, gamma=0.99, lr=1e-4,
                  double_dqn=True):
 
@@ -105,7 +105,7 @@ class DQN_Agent:
     
     def train(self, batch_size:int, buffer_size:int, total_steps:int,
                l_start:int, train_f:int, target_update:int, n_checkpoints:int,
-               save_dir: str = "runs/dqn"):
+               save_dir: str = "runs/ddqn"):
         
         seed = 0  
         threshold = total_steps/n_checkpoints 

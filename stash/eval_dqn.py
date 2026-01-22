@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from wrappers import make_env
-from dqn import DQN_Agent, DQNCNN
+from ddqn import DDQN_Agent, DDQNCNN
 import ale_py 
 
 def main():

@@ -1,4 +1,3 @@
-from html import parser
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -6,14 +5,13 @@ import matplotlib.pyplot as plt
 import os
 import argparse
 import cv2
-import gymnasium as gym
 from datetime import datetime
 
 
-
+from utils import load_config
 from wrappers import make_env
 from ppo import ActorCriticCNN
-from dqn import DQN_Agent,DQNCNN
+from ddqn import DDQN_Agent,DDQNCNN
 from sac_discrete import DiscreteActor
 
 
@@ -126,7 +124,7 @@ def sarfa_heatmap(agent, obs_input, patch=8, stride=4,
 # =========================
 
 @torch.no_grad()
-def ppo_scratch_logprobs_batch(actor_critic_net, device, obs_uint8_batch, actions=None):
+def ppo_logprobs_batch(actor_critic_net, device, obs_uint8_batch, actions=None):
     """
     actor_critic_net: your ActorCriticCNN (from ppo_agent.py), already on device
     obs_uint8_batch: (N,H,W,4) uint8
@@ -186,12 +184,12 @@ def sarfa_heatmap_policy_logp(
     assert C == 4, "Expected (84,84,4) stacked frames"
 
     # base action + base logp
-    base_logp, _, base_best = ppo_scratch_logprobs_batch(
+    base_logp, _, base_best = ppo_logprobs_batch(
         policy_net, device, obs[None, ...], actions=None
     )
     base_action = int(base_best[0])  # explain argmax action
     base_logp = float(
-        ppo_scratch_logprobs_batch(
+        ppo_logprobs_batch(
             policy_net, device, obs[None, ...], actions=np.array([base_action], dtype=np.int64)
         )[0][0]
     )
@@ -217,7 +215,7 @@ def sarfa_heatmap_policy_logp(
             else:
                 batch_np[j, y:y+patch, x:x+patch, :] = fill
 
-        logp_masked, _, best_masked = ppo_scratch_logprobs_batch(
+        logp_masked, _, best_masked = ppo_logprobs_batch(
             policy_net, device, batch_np,
             actions=np.full((n,), base_action, dtype=np.int64)
         )
@@ -336,16 +334,19 @@ def sarfa_heatmap_ppo_scratch(model, device, obs_input, patch=8, stride=4,
 
 
 def main():
+
+    cfg = load_config("config.yaml")
+    
     parser = argparse.ArgumentParser()
     parser.add_argument("--model", type=str, default="checkpoints/dqn_step_200000.pt")
-    parser.add_argument("--env", type=str, default="ALE/SpaceInvaders-v5")
     parser.add_argument("--patch", type=int, default=8)
     parser.add_argument("--stride", type=int, default=4)
     parser.add_argument("--outdir", type=str, default="outputs")
     parser.add_argument("--seed", type=int, default=123)
-    parser.add_argument("--algo", type=str, default="dqn", choices=["dqn", "ppo","sac"])
-    parser.add_argument("--ppo_model", type=str, default="runs/ppo_16_jan/ppo_final.pt")
-    parser.add_argument("--sac_model", type=str, default="runs/sac_discrete/sac_final.pt")
+    parser.add_argument("--algo", type=str, default="ddqn", choices=["ddqn", "ppo","sac"])
+    parser.add_argument("--ddqn_model", type=str, default=cfg["ddqn"]["path_sarfa_model"])
+    parser.add_argument("--ppo_model", type=str, default=cfg["ppo"]["path_sarfa_model"])
+    parser.add_argument("--sac_model", type=str, default=cfg["sac"]["path_sarfa_model"])
 
     args = parser.parse_args()
 
@@ -354,21 +355,21 @@ def main():
 
     # 1. SETUP AMBIENTE
     try:
-        env = make_env(env_id=args.env, seed=args.seed, render_mode="rgb_array")
+        env = make_env(env_id=cfg["env"]["id"], seed=args.seed, render_mode="rgb_array")
     except:
-        env = make_env(env_id=args.env, seed=args.seed)
+        env = make_env(env_id=cfg["env"]["id"], seed=args.seed)
 
     # 2. RESET E WARMUP
     obs, _ = env.reset(seed=args.seed)
     
-    print("Doing warmup (50 step)...")
+    print("Doing warmup with 50 step...")
     for _ in range(50):
         action = env.action_space.sample()
         obs, _, terminated, truncated, _ = env.step(action)
         if terminated or truncated:
             obs, _ = env.reset()
 
-    # 3. ESTRAZIONE DIRETTA SCREENSHOT
+    # we directly extract the screenshot from the ALE 
     ale = None
     current_env = env
     while hasattr(current_env, 'env'):
@@ -388,18 +389,18 @@ def main():
     if rgb_bg is None:
         rgb_bg = env.render()
 
-    # 4. CALCOLO SARFA
+    # computing SARFA
     print(f"Computing Sarfa for patch={args.patch} on device={device}...")
     n_actions = env.action_space.n
     obs_shape = env.observation_space.shape
 
-    # Assicuriamoci che l'input sia corretto
+    # check if input is normalized
     if obs.max() <= 1.0:
         print("[WARNING] observation is normalized (0-1). Multiplying by 255.")
         obs = (obs * 255).astype(np.uint8)
 
-    if args.algo == "dqn":
-        agent = DQN_Agent(args.env, obs_shape[2], n_actions, device, double_dqn=False)   
+    if args.algo == "ddqn":
+        agent = DDQN_Agent(args.env, obs_shape[2], n_actions, device, double_dqn=False)   
         agent.load(args.model)
         
         heat, action = sarfa_heatmap(
@@ -440,11 +441,11 @@ def main():
         print("[ERROR] Heatmap is all zeros!")
         print(" -> Try reducing the patch size or check if the model always predicts the same action.")
 
-    # robust visualization
+    # robust visualization with blurring and normalization
     heat_vis = blur_heatmap(heat, k=7)
     
-    # Rimuoviamo il threshold aggressivo se i valori sono bassi
-    # Usiamo una normalizzazione Min-Max standard
+    # removing aggressive thresholding if values are too low
+    # and using a min-max standard normalization
     if heat_vis.max() > 0:
         heat_vis = (heat_vis - heat_vis.min()) / (heat_vis.max() - heat_vis.min() + 1e-8)
         
