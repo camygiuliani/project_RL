@@ -1,24 +1,18 @@
 import argparse
-import gymnasium as gym
 import numpy as np
 from tqdm import tqdm,trange
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
-import ale_py
 import os
 import time
-import yaml
-from dqn import DQN_Agent, ReplayBuffer
+from utils import load_config
+from ddqn import DDQN_Agent
 from wrappers import make_env
 from ppo import PPO_Agent
-from sac import SACDiscreteAgent, SACDiscreteConfig
+from sac import SACDiscreteAgent, SACDiscreteConfig    
 
 
-#loading configuration from yaml file
-def load_config(path):
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
 
 
 def main():
@@ -54,21 +48,21 @@ def main():
         if args.ddqn:
             print("Starting DQN training...")
 
-            dqn_agent = DQN_Agent(env=env_id,n_channels= cfg['dqn']['n_channels'],
+            ddqn_agent = DDQN_Agent(env=env_id,n_channels= cfg['ddqn']['n_channels'],
                                    n_actions=n_actions, 
                                    device=device,
-                                   gamma=cfg['dqn']['gamma'], 
-                                   lr=cfg['dqn']['lr'],
+                                   gamma=cfg['ddqn']['gamma'], 
+                                   lr=cfg['ddqn']['lr'],
                                    double_dqn=True)            
-            dqn_agent.train(
-                total_steps=cfg['dqn']['total_steps'],
-                l_start=cfg['dqn']['l_start'],
-                train_f=cfg['dqn']['train_f'],
-                batch_size=cfg['dqn']['batch_size'],
-                buffer_size= cfg['dqn']['buffer_size'],
-                target_update=cfg['dqn']['target_update'],
-                n_checkpoints=cfg['dqn']['n_checkpoints'],
-                save_dir=cfg['dqn']['save_dir'])
+            ddqn_agent.train(
+                total_steps=cfg['ddqn']['total_steps'],
+                l_start=cfg['ddqn']['l_start'],
+                train_f=cfg['ddqn']['train_f'],
+                batch_size=cfg['ddqn']['batch_size'],
+                buffer_size= cfg['ddqn']['buffer_size'],
+                target_update=cfg['ddqn']['target_update'],
+                n_checkpoints=cfg['ddqn']['n_checkpoints'],
+                save_dir=cfg['ddqn']['save_dir'])
         
         if args.ppo:
 
@@ -106,6 +100,7 @@ def main():
                 max_grad_norm=cfg["sac"]["max_grad_norm"]
             )
 
+            #TODO: implement SAC training inside che class like the other ones
             sac_agent = SACDiscreteAgent(obs_shape=obs_shape, n_actions=n_actions, device=device, cfg=cfg_sac)
 
             total_steps = cfg["sac"]["total_steps"]
@@ -167,14 +162,17 @@ def main():
             #evaluate_dqn(model_hyperparams=dqn_hyperparams, model_path="runs/dqn/dqn_1000000.pt",
             #             env_id=env_id, n_episodes=10, device=device)  
         
+           #TODO: implement evaluation function for DDQN
         
             return 0  
         
         
         if args.ppo:
+            #TODO: implement evaluation function for PPO
             return 0  
         
         if args.sac:
+            #TODO: implement evaluation function for SAC
             return 0  
   
         
