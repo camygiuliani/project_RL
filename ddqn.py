@@ -45,9 +45,9 @@ class DDQN_Agent:
         self.double_dqn = double_dqn
         
         #1.1 Initialize action-value function Q with random weights
-        self.q = DQNCNN(self.n_actions, self.n_channels).to(self.device)
+        self.q = DDQNCNN(self.n_actions, self.n_channels).to(self.device)
         #1.2 Initialize target action-value function Q with the same weights
-        self.tgt = DQNCNN(self.n_actions, self.n_channels).to(self.device)
+        self.tgt = DDQNCNN(self.n_actions, self.n_channels).to(self.device)
         self.tgt.load_state_dict(self.q.state_dict())
         
         self.tgt.eval()

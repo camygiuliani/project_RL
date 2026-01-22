@@ -2,79 +2,53 @@
 import os
 from dataclasses import dataclass
 from typing import Optional, Tuple
-
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-
-# ----------------------------
-# Replay Buffer (off-policy)
-# ----------------------------
-class ReplayBuffer:
-    def __init__(self, obs_shape, size: int, device: torch.device):
-        """
-        obs_shape: (H,W,C) with C=4 (uint8)
-        """
-        self.size = int(size)
-        self.device = device
-
-        H, W, C = obs_shape
-        self.obs = np.zeros((self.size, H, W, C), dtype=np.uint8)
-        self.next_obs = np.zeros((self.size, H, W, C), dtype=np.uint8)
-        self.actions = np.zeros((self.size,), dtype=np.int64)
-        self.rewards = np.zeros((self.size,), dtype=np.float32)
-        self.dones = np.zeros((self.size,), dtype=np.float32)
-
-        self.ptr = 0
-        self.full = False
-
-    def add(self, obs, action, reward, next_obs, done):
-        self.obs[self.ptr] = obs
-        self.next_obs[self.ptr] = next_obs
-        self.actions[self.ptr] = int(action)
-        self.rewards[self.ptr] = float(reward)
-        self.dones[self.ptr] = float(done)
-
-        self.ptr += 1
-        if self.ptr >= self.size:
-            self.ptr = 0
-            self.full = True
-
-    def __len__(self):
-        return self.size if self.full else self.ptr
-
-    def sample(self, batch_size: int):
-        n = len(self)
-        assert n > 0, "ReplayBuffer is empty"
-        idx = np.random.randint(0, n, size=batch_size)
-
-        obs = torch.from_numpy(self.obs[idx]).to(self.device).permute(0, 3, 1, 2).float() / 255.0
-        next_obs = torch.from_numpy(self.next_obs[idx]).to(self.device).permute(0, 3, 1, 2).float() / 255.0
-        actions = torch.from_numpy(self.actions[idx]).to(self.device)
-        rewards = torch.from_numpy(self.rewards[idx]).to(self.device)
-        dones = torch.from_numpy(self.dones[idx]).to(self.device)
-
-        return obs, actions, rewards, next_obs, dones
+from tqdm import tqdm, trange
+from wrappers import make_env
 
 
 # ----------------------------
 # Networks
 # ----------------------------
-class CNNEncoder(nn.Module):
-    """
-    Atari-style CNN encoder (like DQN).
-    Input: (N,4,84,84) float in [0,1]
-    Output: (N,512)
-    """
-    def __init__(self, in_channels: int):
+
+class SacCNN(nn.Module):
+    """Atari-style CNN encoder (like DQN) + MLP head."""
+    def __init__(self, in_channels: int, n_actions: int):
         super().__init__()
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels, 32, kernel_size=8, stride=4), nn.ReLU(),
             nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(),
             nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU(),
         )
+        # For 84x84 Atari convs -> 7x7x64 = 3136
+        self.fc = nn.Sequential(
+            nn.Flatten(),
+            nn.Linear(3136, 512), nn.ReLU(),
+            nn.Linear(512, n_actions),
+        )
+
+    def forward(self, x):
+        z = self.conv(x)
+        z = self.fc(z)
+        return z
+    
+class CNNEncoder(nn.Module):
+    """
+    Atari-style CNN encoder (like DQN).
+    Input: (N,4,84,84) float in [0,1]
+    Output: (N,512)
+    """
+    def __init__(self, in_channels: int, n_actions: int):
+        super().__init__()
+        self.conv = nn.Sequential(
+            nn.Conv2d(in_channels, 32, kernel_size=8, stride=4), nn.ReLU(),
+            nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU(),
+        )
+
         # 84x84 -> 7x7x64 = 3136
         self.fc = nn.Sequential(
             nn.Flatten(),
@@ -134,7 +108,7 @@ class SACDiscreteConfig:
     max_grad_norm: float = 10.0     # optional safety clip
 
 
-class SACDiscreteAgent:
+class SACDiscrete_Agent:
     """
     Discrete SAC (Atari-friendly).
     - Off-policy (ReplayBuffer)
@@ -142,22 +116,24 @@ class SACDiscreteAgent:
     - Critic: two Q networks, target Q networks
     """
 
-    def __init__(self, obs_shape, n_actions: int, device: torch.device, cfg: Optional[SACDiscreteConfig] = None):
+    def __init__(self, obs_shape, n_actions: int, device: torch.device, 
+                 cfg: Optional[SACDiscreteConfig] = None, env_id="ALE/SpaceInvaders-v5"):
         self.obs_shape = obs_shape
         self.n_actions = n_actions
         self.device = device
         self.cfg = cfg or SACDiscreteConfig()
+        self.env_id = env_id
 
         C = obs_shape[2]
         assert C == 4, "Expected stacked frames (84,84,4)"
 
         # Networks
-        self.actor = DiscreteActor(C, n_actions).to(device)
-        self.q1 = DiscreteCritic(C, n_actions).to(device)
-        self.q2 = DiscreteCritic(C, n_actions).to(device)
+        self.actor = SacCNN(C, n_actions).to(device)
+        self.q1 = SacCNN(C, n_actions).to(device)
+        self.q2 = SacCNN(C, n_actions).to(device)
 
-        self.q1_tgt = DiscreteCritic(C, n_actions).to(device)
-        self.q2_tgt = DiscreteCritic(C, n_actions).to(device)
+        self.q1_tgt = SacCNN(C, n_actions).to(device)
+        self.q2_tgt = SacCNN(C, n_actions).to(device)
         self.q1_tgt.load_state_dict(self.q1.state_dict())
         self.q2_tgt.load_state_dict(self.q2.state_dict())
         self.q1_tgt.eval()
@@ -188,11 +164,7 @@ class SACDiscreteAgent:
         dist = torch.distributions.Categorical(logits=logits)
         a = int(dist.sample().item())
         return a
-
-    def store(self, obs, action, reward, next_obs, done):
-        self.replay.add(obs, action, reward, next_obs, done)
-        self.total_steps += 1
-
+    
     def _soft_update(self, net: nn.Module, tgt: nn.Module):
         tau = self.cfg.tau
         for p, pt in zip(net.parameters(), tgt.parameters()):
@@ -308,6 +280,61 @@ class SACDiscreteAgent:
                 break
             logs = out
         return logs
+    
+    def train(self, env, total_steps: int, eval_every: int, log_every: int, save_dir: str):
+        env = make_env(self.env_id)
+
+        os.makedirs(save_dir, exist_ok=True)
+
+        obs, _ = env.reset(seed=0)
+        ep_ret = 0.0
+        next_eval = eval_every
+
+        tqdm.write("Starting Discrete SAC training...")
+        pbar = trange(1, total_steps + 1, desc="SAC training",leave=True)
+        for step in  pbar:
+            logs = None
+            # act (stochastic)
+            action = self.act(obs, deterministic=False)
+
+            next_obs, r, term, trunc, _ = env.step(action)
+            done = term or trunc
+            ep_ret += float(r)
+
+            self.replay.add(obs, action, r, next_obs, done)
+            self.total_steps += 1
+            obs = next_obs
+
+            if done:
+                obs, _ = env.reset()
+                ep_ret = 0.0
+
+            # updates (off-policy)
+            if self.total_steps > cfg.start_steps and self.can_update():
+                logs=self.update_many(cfg.updates_per_step)
+                    # stampa "umana" ogni tot step
+            
+            if step % log_every == 0 and logs is not None:
+                tqdm.write(
+                    f"[step {step}] q1={logs['q1_loss']:.2f} "
+                    f"q2={logs['q2_loss']:.2f} actor={logs['actor_loss']:.2f}"
+                )
+                
+            # checkpoint
+            if step >= next_eval:
+                ckpt = os.path.join(save_dir, f"sac_step_{step}.pt")
+                self.save(ckpt)
+                #print(f"[SAC] saved checkpoint: {ckpt}")
+                tqdm.write(f"[SAC] saved checkpoint at step {step}")
+                next_eval += eval_every
+
+        env.close()
+        final_path = os.path.join(save_dir, "sac_final.pt")
+        self.save(final_path)
+        print(f"[SAC] saved final checkpoint: {final_path}")
+
+    def eval(self):
+        return
 
     def save(self, path: str):
         os.makedirs(os.path.dirname(path), exist_ok=True) if os.path.dirname(path) else None
@@ -344,3 +371,50 @@ class SACDiscreteAgent:
         self.q2.eval()
         self.q1_tgt.eval()
         self.q2_tgt.eval()
+
+
+class ReplayBuffer:
+    def __init__(self, obs_shape, size: int, device: torch.device):
+        """
+        obs_shape: (H,W,C) with C=4 (uint8)
+        """
+        self.size = int(size)
+        self.device = device
+
+        H, W, C = obs_shape
+        self.obs = np.zeros((self.size, H, W, C), dtype=np.uint8)
+        self.next_obs = np.zeros((self.size, H, W, C), dtype=np.uint8)
+        self.actions = np.zeros((self.size,), dtype=np.int64)
+        self.rewards = np.zeros((self.size,), dtype=np.float32)
+        self.dones = np.zeros((self.size,), dtype=np.float32)
+
+        self.ptr = 0
+        self.full = False
+
+    def add(self, obs, action, reward, next_obs, done):
+        self.obs[self.ptr] = obs
+        self.next_obs[self.ptr] = next_obs
+        self.actions[self.ptr] = int(action)
+        self.rewards[self.ptr] = float(reward)
+        self.dones[self.ptr] = float(done)
+
+        self.ptr += 1
+        if self.ptr >= self.size:
+            self.ptr = 0
+            self.full = True
+
+    def __len__(self):
+        return self.size if self.full else self.ptr
+
+    def sample(self, batch_size: int):
+        n = len(self)
+        assert n > 0, "ReplayBuffer is empty"
+        idx = np.random.randint(0, n, size=batch_size)
+
+        obs = torch.from_numpy(self.obs[idx]).to(self.device).permute(0, 3, 1, 2).float() / 255.0
+        next_obs = torch.from_numpy(self.next_obs[idx]).to(self.device).permute(0, 3, 1, 2).float() / 255.0
+        actions = torch.from_numpy(self.actions[idx]).to(self.device)
+        rewards = torch.from_numpy(self.rewards[idx]).to(self.device)
+        dones = torch.from_numpy(self.dones[idx]).to(self.device)
+
+        return obs, actions, rewards, next_obs, dones

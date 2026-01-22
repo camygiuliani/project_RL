@@ -4,68 +4,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
-
 from wrappers import make_env
-
-
-class _RolloutBuffer:
-    """On-policy rollout buffer + GAE(lambda). Stores obs as uint8 (H,W,C)."""
-
-    def __init__(self, obs_shape, size, gamma=0.99, gae_lambda=0.95):
-        self.obs_shape = obs_shape
-        self.size = size
-        self.gamma = gamma
-        self.gae_lambda = gae_lambda
-        self.reset()
-
-    def reset(self):
-        H, W, C = self.obs_shape
-        self.obs = np.zeros((self.size, H, W, C), dtype=np.uint8)
-        self.actions = np.zeros((self.size,), dtype=np.int64)
-        self.rewards = np.zeros((self.size,), dtype=np.float32)
-        self.dones = np.zeros((self.size,), dtype=np.float32)
-        self.values = np.zeros((self.size,), dtype=np.float32)
-        self.logps = np.zeros((self.size,), dtype=np.float32)
-
-        self.advantages = np.zeros((self.size,), dtype=np.float32)
-        self.returns = np.zeros((self.size,), dtype=np.float32)
-
-        self.ptr = 0
-        self.full = False
-
-    def add(self, obs, action, reward, done, value, logp):
-        self.obs[self.ptr] = obs
-        self.actions[self.ptr] = action
-        self.rewards[self.ptr] = float(reward)
-        self.dones[self.ptr] = float(done)
-        self.values[self.ptr] = float(value)
-        self.logps[self.ptr] = float(logp)
-
-        self.ptr += 1
-        if self.ptr >= self.size:
-            self.full = True
-
-    def compute_returns_and_advantages(self, last_value):
-        assert self.full, "Rollout buffer not full"
-        adv = 0.0
-        for t in reversed(range(self.size)):
-            next_value = last_value if t == self.size - 1 else self.values[t + 1]
-            next_nonterminal = 1.0 - self.dones[t]
-            delta = self.rewards[t] + self.gamma * next_value * next_nonterminal - self.values[t]
-            adv = delta + self.gamma * self.gae_lambda * next_nonterminal * adv
-            self.advantages[t] = adv
-
-        self.returns = self.advantages + self.values
-
-        # normalize advantages
-        m = self.advantages.mean()
-        s = self.advantages.std() + 1e-8
-        self.advantages = (self.advantages - m) / s
 
 
 class ActorCriticCNN(nn.Module):
     """Shared CNN encoder -> actor logits + critic value. Input: (N,4,84,84) float in [0,1]."""
-
     def __init__(self, in_channels, n_actions):
         super().__init__()
         self.conv = nn.Sequential(
@@ -90,7 +33,7 @@ class ActorCriticCNN(nn.Module):
 
 
 class PPO_Agent:
-    def __init__(self, env_id="ALE/SpaceInvaders-v5", seed=0, device=None, lr=2.5e-4, gamma=0.99, gae_lambda=0.95, clip_eps=0.1,
+    def __init__(self, obs_shape, n_actions, env_id="ALE/SpaceInvaders-v5", seed=0, device=None, lr=2.5e-4, gamma=0.99, gae_lambda=0.95, clip_eps=0.1,
         ent_coef=0.01, vf_coef=0.5, max_grad_norm=0.5, rollout_len=128, n_epochs=4, batch_size=256,
         save_dir="runs/ppo",eval_every=100_000,eval_episodes=10):
         
@@ -115,10 +58,9 @@ class PPO_Agent:
         self.eval_episodes = eval_episodes
 
         os.makedirs(self.save_dir, exist_ok=True)
-        env = make_env(env_id=self.env_id, seed=self.seed)
-        self.obs_shape = env.observation_space.shape  # (84,84,4)
-        self.n_actions = env.action_space.n
-        env.close()
+
+        self.obs_shape = obs_shape  # (84,84,4)
+        self.n_actions = n_actions
 
         self.net = ActorCriticCNN(in_channels=self.obs_shape[2], n_actions=self.n_actions).to(self.device)
         self.opt = torch.optim.Adam(self.net.parameters(), lr=self.lr)
@@ -168,16 +110,7 @@ class PPO_Agent:
             rets.append(ep_ret)
         env.close()
         return float(np.mean(rets)), float(np.std(rets))
-
-    def save(self, path):
-        torch.save({"net": self.net.state_dict()}, path)
-
-    def load(self, path):
-        ckpt = torch.load(path, map_location=self.device)
-        self.net.load_state_dict(ckpt["net"])
-        self.net.to(self.device)
-        self.net.eval()
-
+        
     def _update(self):
         # to torch
         obs_t = torch.from_numpy(self.buffer.obs).to(self.device).permute(0, 3, 1, 2).float() / 255.0
@@ -270,3 +203,70 @@ class PPO_Agent:
         self.save(final_path)
         print(f"Saved final PPO: {final_path}")
         return final_path
+    
+    def eval(self):
+        return
+    
+    def save(self, path):
+        torch.save({"net": self.net.state_dict()}, path)
+
+    def load(self, path):
+        ckpt = torch.load(path, map_location=self.device)
+        self.net.load_state_dict(ckpt["net"])
+        self.net.to(self.device)
+        self.net.eval()
+
+class _RolloutBuffer:
+    """On-policy rollout buffer + GAE(lambda). Stores obs as uint8 (H,W,C)."""
+
+    def __init__(self, obs_shape, size, gamma=0.99, gae_lambda=0.95):
+        self.obs_shape = obs_shape
+        self.size = size
+        self.gamma = gamma
+        self.gae_lambda = gae_lambda
+        self.reset()
+
+    def reset(self):
+        H, W, C = self.obs_shape
+        self.obs = np.zeros((self.size, H, W, C), dtype=np.uint8)
+        self.actions = np.zeros((self.size,), dtype=np.int64)
+        self.rewards = np.zeros((self.size,), dtype=np.float32)
+        self.dones = np.zeros((self.size,), dtype=np.float32)
+        self.values = np.zeros((self.size,), dtype=np.float32)
+        self.logps = np.zeros((self.size,), dtype=np.float32)
+
+        self.advantages = np.zeros((self.size,), dtype=np.float32)
+        self.returns = np.zeros((self.size,), dtype=np.float32)
+
+        self.ptr = 0
+        self.full = False
+
+    def add(self, obs, action, reward, done, value, logp):
+        self.obs[self.ptr] = obs
+        self.actions[self.ptr] = action
+        self.rewards[self.ptr] = float(reward)
+        self.dones[self.ptr] = float(done)
+        self.values[self.ptr] = float(value)
+        self.logps[self.ptr] = float(logp)
+
+        self.ptr += 1
+        if self.ptr >= self.size:
+            self.full = True
+
+    def compute_returns_and_advantages(self, last_value):
+        assert self.full, "Rollout buffer not full"
+        adv = 0.0
+        for t in reversed(range(self.size)):
+            next_value = last_value if t == self.size - 1 else self.values[t + 1]
+            next_nonterminal = 1.0 - self.dones[t]
+            delta = self.rewards[t] + self.gamma * next_value * next_nonterminal - self.values[t]
+            adv = delta + self.gamma * self.gae_lambda * next_nonterminal * adv
+            self.advantages[t] = adv
+
+        self.returns = self.advantages + self.values
+
+        # normalize advantages
+        m = self.advantages.mean()
+        s = self.advantages.std() + 1e-8
+        self.advantages = (self.advantages - m) / s
+
