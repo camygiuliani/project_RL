@@ -15,40 +15,15 @@ from ppo import PPO_Agent
 from sac import SACDiscreteAgent, SACDiscreteConfig
 
 
+#loading configuration from yaml file
 def load_config(path):
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
-def evaluate_dqn(model_path, model_hyperparams, env_id, n_episodes, device):
-    env = make_env(env_id=env_id, seed=123)
-    n_actions = env.action_space.n
-    obs_shape = env.observation_space.shape
-
-    agent = DQN_Agent(**model_hyperparams)
-    agent.load(model_path)
-
-    returns = []
-    for ep in range(n_episodes):
-        obs, _ = env.reset()
-        done = False
-        R = 0.0
-        while not done:
-            a = agent.act(obs, eps=0.0)
-            obs, r, terminated, truncated, _ = env.step(a)
-            done = terminated or truncated
-            R += r
-        returns.append(R)
-        print(f"Episode {ep+1}: return={R:.1f}")
-
-    mean_return = float(np.mean(returns))
-    print("Mean return:", mean_return)
-    env.close()
-    return mean_return
-
 
 def main():
     parser = argparse.ArgumentParser(description='Run training of selected RL algorithm.')
-    parser.add_argument('-dqn', '--dqn', action='store_true')
+   
     parser.add_argument('-ddqn', '--ddqn', action='store_true')
     parser.add_argument('-ppo', '--ppo', action='store_true')
     parser.add_argument('-sac', '--sac', action='store_true')
@@ -58,7 +33,7 @@ def main():
 
     args = parser.parse_args()
 
-    print("Starting training script...")
+    print("Starting training script...importing configuration from config.yaml")
     cfg = load_config("config.yaml")
     env_id = cfg["env"]["id"]
 
@@ -76,32 +51,24 @@ def main():
     #TRAINING SECTION 
     if args.train:
         
-        if args.dqn:
+        if args.ddqn:
             print("Starting DQN training...")
 
-            dqn_hyperparams = {
-                "n_channels": 4,              
-                "n_actions": n_actions,       
-                "device": device,             
-                "env": env_id,                
-                "gamma": 0.99,                
-                "lr": 1e-4,                   
-                "double_dqn": True                         
-            }
-
-            dqn_training_params = {
-                "total_steps": 1_000_000,
-                "l_start": 50_000,
-                "train_f": 4,
-                "batch_size": 32,
-                "buffer_size": 200_000,
-                "target_update": 10_000,
-                "n_checkpoints": 5,
-                "save_dir": "runs/dqn"
-            }
-
-            dqn_agent = DQN_Agent(**dqn_hyperparams)                        
-            dqn_agent.train(**dqn_training_params)
+            dqn_agent = DQN_Agent(env=env_id,n_channels= cfg['dqn']['n_channels'],
+                                   n_actions=n_actions, 
+                                   device=device,
+                                   gamma=cfg['dqn']['gamma'], 
+                                   lr=cfg['dqn']['lr'],
+                                   double_dqn=True)            
+            dqn_agent.train(
+                total_steps=cfg['dqn']['total_steps'],
+                l_start=cfg['dqn']['l_start'],
+                train_f=cfg['dqn']['train_f'],
+                batch_size=cfg['dqn']['batch_size'],
+                buffer_size= cfg['dqn']['buffer_size'],
+                target_update=cfg['dqn']['target_update'],
+                n_checkpoints=cfg['dqn']['n_checkpoints'],
+                save_dir=cfg['dqn']['save_dir'])
         
         if args.ppo:
 
@@ -117,7 +84,7 @@ def main():
                 save_dir=cfg["ppo"]["save_dir"],
                 eval_every=cfg["ppo"]["eval_every"],
             )
-            ppo_agent.train(total_steps=cfg["ppo"]["total_steps"])
+            ppo_agent.train(total_steps=cfg["ppo"]["total_steps"])###########
         
         #Si deve sistemare mettendo il training nella classe come tutti gli altri
 
@@ -126,15 +93,20 @@ def main():
             env = make_env(env_id)
             obs_shape = env.observation_space.shape  # (84,84,4)
 
-            cfg_s = SACDiscreteConfig(
-                replay_size=cfg["sac"]["replay_size"],
-                batch_size= cfg["sac"]["batch_size"],
-                alpha=cfg["sac"]["alpha"],
-                start_steps=cfg["sac"]["start_steps"],
-                updates_per_step=cfg["sac"]["updates_per_step"],
+            cfg_sac = SACDiscreteConfig(
+                gamma= cfg["sac"]["gamma"],
+                tau = cfg["sac"]["tau"],          # target soft update
+                alpha = cfg["sac"]["alpha"],             # entropy temperature (fixed, simple)
+                actor_lr = cfg["sac"]["actor_lr"],
+                critic_lr = cfg["sac"]["critic_lr"],
+                batch_size = cfg["sac"]["batch_size"],
+                replay_size = cfg["sac"]["replay_size"],
+                start_steps = cfg["sac"]["start_steps"],       # collect before updating heavily
+                updates_per_step = cfg["sac"]["updates_per_step"],       # how many gradient steps per env step after start
+                max_grad_norm=cfg["sac"]["max_grad_norm"]
             )
 
-            sac_agent = SACDiscreteAgent(obs_shape=obs_shape, n_actions=n_actions, device=device, cfg=cfg_s)
+            sac_agent = SACDiscreteAgent(obs_shape=obs_shape, n_actions=n_actions, device=device, cfg=cfg_sac)
 
             total_steps = cfg["sac"]["total_steps"]
             eval_every = cfg["sac"]["eval_every"]
@@ -191,12 +163,13 @@ def main():
     #EVALUATION SECTION
     if args.eval:
         
-        if args.dqn:
-            evaluate_dqn(model_hyperparams=dqn_hyperparams, model_path="runs/dqn/dqn_1000000.pt",
-                         env_id=env_id, n_episodes=10, device=device)  
-        
         if args.ddqn:
+            #evaluate_dqn(model_hyperparams=dqn_hyperparams, model_path="runs/dqn/dqn_1000000.pt",
+            #             env_id=env_id, n_episodes=10, device=device)  
+        
+        
             return 0  
+        
         
         if args.ppo:
             return 0  
