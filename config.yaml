@@ -9,15 +9,23 @@ training:
   log_every: 10000
   device: cuda
 
-dqn:
+ddqn:
+  n_channels: 4
+  n_actions: ?,
   gamma: 0.99
   lr: 1e-4
+  train_f: 4
+  l_start: 50000
+  double_dqn: true
   batch_size: 32
   buffer_size: 100000
   target_update: 10000
   epsilon_start: 1.0
   epsilon_end: 0.01
   epsilon_decay: 1000000
+  n_checkpoints: 5
+  save_dir: runs/ddqn
+  path_sarfa_model: runs/ddqn/ddqn_final.pt
 
 ppo:
   gamma: 0.99
@@ -28,21 +36,24 @@ ppo:
   epochs: 4
   batch_size: 64
   seed: 0
-  save_dir: runs/ppo
   eval_every: 100000
   total_steps: 1000000
+  save_dir: runs/ppo
+  path_sarfa_model: runs/ppo/ppo_final.pt
 
 sac:
   gamma: 0.99
   alpha: 0.2
-  lr_actor: 3e-4
-  lr_critic: 3e-4
+  actor_lr: 3e-4
+  critic_lr: 3e-4
   batch_size: 128
   replay_size: 200000
   start_steps: 20000
   tau: 0.005
   updates_per_step: 1
-  save_dir: runs/sac_discrete
   log_every: 1000
   total_steps: 10000
   eval_every: 1000
+  max_grad_norm: 10.0
+  save_dir: runs/sac_discrete
+  path_sarfa_model: runs/sac_discrete/sac_final.pt
