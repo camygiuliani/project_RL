@@ -8,11 +8,16 @@ import torch.nn as nn
 import ale_py
 import os
 import time
+import yaml
 from dqn import DQN_Agent, ReplayBuffer
 from wrappers import make_env
 from ppo import PPO_Agent
 from sac import SACDiscreteAgent, SACDiscreteConfig
 
+
+def load_config(path):
+    with open(path, "r") as f:
+        return yaml.safe_load(f)
 
 def evaluate_dqn(model_path, model_hyperparams, env_id, n_episodes, device):
     env = make_env(env_id=env_id, seed=123)
@@ -54,7 +59,9 @@ def main():
     args = parser.parse_args()
 
     print("Starting training script...")
-    env_id = "ALE/SpaceInvaders-v5"
+    cfg = load_config("config.yaml")
+    env_id = cfg["env"]["id"]
+
     temp_env = make_env(env_id)
     n_actions = temp_env.action_space.n
     temp_env.close()
@@ -99,22 +106,18 @@ def main():
         if args.ppo:
 
             #PPO hyperparameters
-            ppo_seed = 0
-            ppo_rollout_len = 128
-            ppo_n_epochs = 4
-            ppo_batch_size = 256
-            ppo_eval_every = 100_000
+            
             print("Starting PPO training...")
             ppo_agent = PPO_Agent(
-                env_id="ALE/SpaceInvaders-v5",
-                seed=ppo_seed,
-                rollout_len=ppo_rollout_len,
-                n_epochs=ppo_n_epochs,
-                batch_size=ppo_batch_size,
-                save_dir="runs/ppo",
-                eval_every=ppo_eval_every,
+                env_id=env,
+                seed=cfg,
+                rollout_len=cfg["ppo"]["rollout_steps"],
+                n_epochs=cfg["ppo"]["epochs"],
+                batch_size=cfg["ppo"]["batch_size"],
+                save_dir=cfg["ppo"]["save_dir"],
+                eval_every=cfg["ppo"]["eval_every"],
             )
-            ppo_agent.train(total_steps=100_000)
+            ppo_agent.train(total_steps=cfg["ppo"]["total_steps"])
         
         #Si deve sistemare mettendo il training nella classe come tutti gli altri
 
@@ -123,20 +126,20 @@ def main():
             env = make_env(env_id)
             obs_shape = env.observation_space.shape  # (84,84,4)
 
-            cfg = SACDiscreteConfig(
-                replay_size=200_000,
-                batch_size=128,
-                alpha=0.2,
-                start_steps=1_000,
-                updates_per_step=1,
+            cfg_s = SACDiscreteConfig(
+                replay_size=cfg["sac"]["replay_size"],
+                batch_size= cfg["sac"]["batch_size"],
+                alpha=cfg["sac"]["alpha"],
+                start_steps=cfg["sac"]["start_steps"],
+                updates_per_step=cfg["sac"]["updates_per_step"],
             )
 
-            sac_agent = SACDiscreteAgent(obs_shape=obs_shape, n_actions=n_actions, device=device, cfg=cfg)
+            sac_agent = SACDiscreteAgent(obs_shape=obs_shape, n_actions=n_actions, device=device, cfg=cfg_s)
 
-            total_steps = 10_000
-            eval_every = 1_000
-            log_every = 1_000
-            save_dir = "runs/sac_discrete"
+            total_steps = cfg["sac"]["total_steps"]
+            eval_every = cfg["sac"]["eval_every"]
+            log_every = cfg["sac"]["log_every"]
+            save_dir = cfg["sac"]["save_dir"]
             os.makedirs(save_dir, exist_ok=True)
 
             obs, _ = env.reset(seed=0)

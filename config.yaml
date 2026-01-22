@@ -1,0 +1,48 @@
+env:
+  id: ALE/SpaceInvaders-v5
+  seed: 0
+  frame_stack: 4
+
+training:
+  total_steps: 1000000
+  eval_every: 100000
+  log_every: 10000
+  device: cuda
+
+dqn:
+  gamma: 0.99
+  lr: 1e-4
+  batch_size: 32
+  buffer_size: 100000
+  target_update: 10000
+  epsilon_start: 1.0
+  epsilon_end: 0.01
+  epsilon_decay: 1000000
+
+ppo:
+  gamma: 0.99
+  lr: 3e-4
+  clip_eps: 0.2
+  gae_lambda: 0.95
+  rollout_steps: 128
+  epochs: 4
+  batch_size: 64
+  seed: 0
+  save_dir: runs/ppo
+  eval_every: 100000
+  total_steps: 1000000
+
+sac:
+  gamma: 0.99
+  alpha: 0.2
+  lr_actor: 3e-4
+  lr_critic: 3e-4
+  batch_size: 128
+  replay_size: 200000
+  start_steps: 20000
+  tau: 0.005
+  updates_per_step: 1
+  save_dir: runs/sac_discrete
+  log_every: 1000
+  total_steps: 10000
+  eval_every: 1000

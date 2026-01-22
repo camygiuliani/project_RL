@@ -1,4 +1,3 @@
-# ppo_scratch.py
 import os
 import numpy as np
 import torch
