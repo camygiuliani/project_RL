@@ -11,7 +11,7 @@ training:
 
 ddqn:
   n_channels: 4
-  n_actions: ?,
+  n_actions: ?
   gamma: 0.99
   lr: 1e-4
   train_f: 4
@@ -57,3 +57,30 @@ sac:
   max_grad_norm: 10.0
   save_dir: runs/sac_discrete
   path_sarfa_model: runs/sac_discrete/sac_final.pt
+
+sarfa:
+  outdir: ./outputs
+  seed: 123
+  stride: 4
+  patch: 8
+  model: ?
+  ddqn:
+    fill_mode: "mean"
+    batch_size: 64
+    use_advantage: true
+    clamp_positive: true
+    use_action_flip: true
+    flip_weight: 2.0
+  ppo:
+    in_channels: 4
+    fill_mode: "mean"
+    batch_size: 64
+  sac:
+    in_channels: 4
+    fill_mode: "mean"
+    batch_size: 64
+    clamp_positive: true
+    use_action_flip: true
+    flip_weight: 2.0
+    occlude_only_last_frame: true
+
