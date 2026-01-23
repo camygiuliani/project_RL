@@ -10,10 +10,6 @@ from tqdm import tqdm, trange
 from wrappers import make_env
 
 
-# ----------------------------
-# Networks
-# ----------------------------
-
 class SacCNN(nn.Module):
     """Atari-style CNN encoder (like DQN) + MLP head."""
     def __init__(self, in_channels: int, n_actions: int):
@@ -91,9 +87,7 @@ class DiscreteCritic(nn.Module):
         return q
 
 
-# ----------------------------
-# SAC Discrete Agent
-# ----------------------------
+
 @dataclass
 class SACDiscreteConfig:
     gamma: float = 0.99

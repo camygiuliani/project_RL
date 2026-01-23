@@ -27,12 +27,12 @@ def _get_fill_value(obs_uint8, mode="mean"):
     """
     if mode == "zero":
         return 0
-    # mean per canale (shape (1,1,4)) poi broadcasta
+    # mean for channel (shape (1,1,4)) then broadcast
     fill = obs_uint8.mean(axis=(0, 1), keepdims=True)
     return fill.astype(obs_uint8.dtype)
 
-#deactivate gradients for this function, more efficient
-@torch.no_grad()
+
+@torch.no_grad()  #function is more efficient without gradient tracking
 def q_values_batch(agent, obs_uint8_batch):
     #compute Q values for a batch of observations
     """
@@ -51,32 +51,28 @@ def sarfa_heatmap(agent, obs_input, patch=8, stride=4,
                   use_advantage=True, clamp_positive=True,
                   use_action_flip=True, flip_weight=2.0):
     
-    # Rinominiamo
     obs = obs_input
     
-    # 1. Preparazione Input
+    # input preparation
     if obs.dtype != np.uint8:
         if obs.max() <= 1.0: 
             obs = (obs * 255).astype(np.uint8)
         else: 
             obs = obs.astype(np.uint8)
         
-    # Gym restituisce (H, W, C), PyTorch vuole (C, H, W)
+    # Gym returns (H, W, C), PyTorch wants (C, H, W)
     obs_tensor = torch.tensor(obs, dtype=torch.float32, device=agent.device)
     obs_tensor = obs_tensor.permute(2, 0, 1) 
     obs_tensor = obs_tensor.unsqueeze(0) / 255.0
     
-    # 2. Baseline
+    # Baseline
     with torch.no_grad():
-        # --- FIX NOME VARIABILE ---
-        # Nel tuo agente la rete si chiama 'q', non 'q_net'
         q_values = agent.q(obs_tensor) 
-        # --------------------------
-        
+      
         base_action = torch.argmax(q_values, dim=1).item()
         base_q = q_values[0, base_action].item()
 
-    # 3. Setup Griglia
+    # grid settings
     H, W, C = obs.shape
     coords = [(x, y) for y in range(0, H-patch+1, stride) for x in range(0, W-patch+1, stride)]
     heatmap = np.zeros((H, W), dtype=np.float32)
@@ -84,7 +80,7 @@ def sarfa_heatmap(agent, obs_input, patch=8, stride=4,
     if fill_mode == "mean": fill_val = np.mean(obs)
     else: fill_val = 0
 
-    # 4. Ciclo Batch
+    # batch loop
     for i in range(0, len(coords), batch_size):
         chunk = coords[i:i+batch_size]
         batch_np = np.repeat(obs[None, ...], len(chunk), axis=0).copy()
@@ -97,11 +93,10 @@ def sarfa_heatmap(agent, obs_input, patch=8, stride=4,
         batch_tensor = batch_tensor / 255.0
 
         with torch.no_grad():
-            # --- FIX NOME VARIABILE ---
             q_perturbed = agent.q(batch_tensor) 
-            # --------------------------
+            
 
-        # 5. Calcolo Score
+        # score computation
         q_of_base_action = q_perturbed[:, base_action].cpu().numpy()
         delta = base_q - q_of_base_action
 
@@ -120,7 +115,7 @@ def sarfa_heatmap(agent, obs_input, patch=8, stride=4,
 
 
 # =========================
-# PPO version (SCRATCH)
+# PPO version 
 # =========================
 
 @torch.no_grad()
@@ -237,27 +232,27 @@ def sarfa_heatmap_policy_logp(
 
 #original patch=8 stride=8
 
-def sarfa_heatmap_ppo_scratch(model, device, obs_input, patch=8, stride=4, 
+def sarfa_heatmap_ppo(model, device, obs_input, patch=8, stride=4, 
                               fill_mode="mean", batch_size=32, 
                               clamp_positive=True, use_action_flip=True, flip_weight=2.0):
     
-    # Rinominiamo subito per sicurezza
     obs = obs_input
 
-    # 1. Preparazione Input Base
+    # initial input processing
     if obs.dtype != np.uint8:
         if obs.max() <= 1.0: 
             obs = (obs * 255).astype(np.uint8)
         else: 
             obs = obs.astype(np.uint8)
 
-    # --- FIX DIMENSIONI (H,W,C -> C,H,W) ---
+    #  (H,W,C -> C,H,W)
     obs_tensor = torch.tensor(obs, dtype=torch.float32, device=device)
     obs_tensor = obs_tensor.permute(2, 0, 1) # (4, 84, 84)
     obs_tensor = obs_tensor.unsqueeze(0) / 255.0 # (1, 4, 84, 84)
-    # ---------------------------------------
+    
 
     with torch.no_grad():
+        # TODO controllare questo pezzo
         # --- FIX ATTRIBUTE ERROR ---
         # Il modello restituisce (logits, values) oppure (distribution, values).
         # Controlliamo cosa abbiamo ricevuto.
@@ -266,14 +261,14 @@ def sarfa_heatmap_ppo_scratch(model, device, obs_input, patch=8, stride=4,
         if hasattr(output, 'logits'):
             logits = output.logits
         else:
-            logits = output # È già il tensore dei logits
+            logits = output # this is already the logits
 
         base_probs = torch.softmax(logits, dim=-1)
         base_action = torch.argmax(base_probs, dim=-1).item()
         base_prob_val = base_probs[0, base_action].item()
         # ---------------------------
 
-    # 2. Coordinate della griglia
+    # grid coordinates
     H, W, C = obs.shape
     y_range = range(0, H - patch + 1, stride)
     x_range = range(0, W - patch + 1, stride)
@@ -286,23 +281,24 @@ def sarfa_heatmap_ppo_scratch(model, device, obs_input, patch=8, stride=4,
     else:
         fill_val = 0 
 
-    # 3. Ciclo su Batch
+    # batch loop
     for i in range(0, len(coords), batch_size):
         chunk = coords[i:i+batch_size]
         n_chunk = len(chunk)
 
-        # Creiamo il batch numpy: (Batch, H, W, C)
+        # creating numpy batch (Batch, H, W, C)
+        
         batch_np = np.repeat(obs[None, ...], n_chunk, axis=0).copy()
 
-        # Applichiamo le maschere (Deep Masking su tutti i canali)
+        # applying masks (deep masking on all channels)
         for idx, (x, y) in enumerate(chunk):
             batch_np[idx, y:y+patch, x:x+patch, :] = fill_val 
 
-        # --- FIX DIMENSIONI BATCH ---
+        
         batch_tensor = torch.tensor(batch_np, dtype=torch.float32, device=device)
         batch_tensor = batch_tensor.permute(0, 3, 1, 2) # (Batch, 4, 84, 84)
         batch_tensor = batch_tensor / 255.0
-        # ----------------------------
+       
 
         with torch.no_grad():
             # --- FIX ATTRIBUTE ERROR (Anche qui nel loop) ---
@@ -316,7 +312,7 @@ def sarfa_heatmap_ppo_scratch(model, device, obs_input, patch=8, stride=4,
             probs_p = torch.softmax(logits_p, dim=-1)
             # -----------------------------------------------
         
-        # 4. Calcolo Punteggio SARFA
+        # computing sarfa scores
         new_probs_of_base_action = probs_p[:, base_action]
         delta = base_prob_val - new_probs_of_base_action.cpu().numpy()
 
@@ -338,11 +334,11 @@ def main():
     cfg = load_config("config.yaml")
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default="checkpoints/dqn_step_200000.pt")
-    parser.add_argument("--patch", type=int, default=8)
-    parser.add_argument("--stride", type=int, default=4)
-    parser.add_argument("--outdir", type=str, default="outputs")
-    parser.add_argument("--seed", type=int, default=123)
+    parser.add_argument("--model", type=str, default=cfg["sarfa"]["model"])
+    parser.add_argument("--patch", type=int, default=cfg["sarfa"]["patch"])
+    parser.add_argument("--stride", type=int, default=cfg["sarfa"]["stride"])
+    parser.add_argument("--outdir", type=str, default=cfg["sarfa"]["outdir"])
+    parser.add_argument("--seed", type=int, default=cfg["sarfa"]["seed"])
     parser.add_argument("--algo", type=str, default="ddqn", choices=["ddqn", "ppo","sac"])
     parser.add_argument("--ddqn_model", type=str, default=cfg["ddqn"]["path_sarfa_model"])
     parser.add_argument("--ppo_model", type=str, default=cfg["ppo"]["path_sarfa_model"])
@@ -353,13 +349,13 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # 1. SETUP AMBIENTE
+    # set up environment
     try:
         env = make_env(env_id=cfg["env"]["id"], seed=args.seed, render_mode="rgb_array")
     except:
         env = make_env(env_id=cfg["env"]["id"], seed=args.seed)
 
-    # 2. RESET E WARMUP
+    # reset and workout part
     obs, _ = env.reset(seed=args.seed)
     
     print("Doing warmup with 50 step...")
@@ -400,36 +396,59 @@ def main():
         obs = (obs * 255).astype(np.uint8)
 
     if args.algo == "ddqn":
-        agent = DDQN_Agent(args.env, obs_shape[2], n_actions, device, double_dqn=False)   
+        print("Using DDQN agent for SARFA...")
+        agent = DDQN_Agent(args.env, obs_shape[2], n_actions, device, double_dqn=True)   
         agent.load(args.model)
         
         heat, action = sarfa_heatmap(
             agent, obs,
-            patch=args.patch, stride=args.stride,
-            fill_mode="mean", batch_size=64,
-            use_advantage=True, clamp_positive=True,
-            use_action_flip=True, flip_weight=2.0
+            patch=args.patch, 
+            stride=args.stride,
+            fill_mode="mean", 
+            batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
+            use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"], 
+            clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
+            use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"], 
+            flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
         )
 
     elif args.algo == "ppo":
+        print("Using PPO agent for SARFA...")
         ckpt = torch.load(args.ppo_model, map_location=device)
-        actor_critic = ActorCriticCNN(in_channels=4, n_actions=n_actions).to(device)
+        actor_critic = ActorCriticCNN(in_channels=cfg["sarfa"]["ppo"]["in_channels"], 
+                                      n_actions=n_actions)
+        actor_critic = actor_critic.to(device)
         actor_critic.load_state_dict(ckpt["net"])
         actor_critic.eval()
-        heat, action = sarfa_heatmap_ppo_scratch(actor_critic, device, obs, patch=args.patch, stride=args.stride, fill_mode="mean", batch_size=64)
+        heat, action = sarfa_heatmap_ppo(actor_critic,
+                                          device,
+                                          obs,
+                                          patch=args.patch,
+                                          stride=args.stride,
+                                          fill_mode=cfg["sarfa"]["ppo"]["fill_mode"], 
+                                          batch_size=cfg["sarfa"]["ppo"]["batch_size"])
     
     else:  # sac
+        print("Using SAC agent for SARFA...")
         ckpt = torch.load(args.sac_model, map_location=device)
-        sac_actor = DiscreteActor(in_channels=4, n_actions=n_actions).to(device)
+        sac_actor = DiscreteActor(in_channels=cfg["sarfa"]["sac"]["in_channels"],
+                                   n_actions=n_actions)
+        sac_actor = sac_actor.to(device)
         sac_actor.load_state_dict(ckpt["actor"])
         sac_actor.eval()
 
         heat, action = sarfa_heatmap_policy_logp(
-            sac_actor, device, obs,
-            patch=args.patch, stride=args.stride,
-            fill_mode="mean", batch_size=64,
-            clamp_positive=True, use_action_flip=True, flip_weight=2.0,
-            occlude_only_last_frame=True
+            sac_actor,
+            device, 
+            obs,
+            patch=args.patch, 
+            stride=args.stride,
+            fill_mode=cfg["sarfa"]["sac"]["fill_mode"], 
+            batch_size=cfg["sarfa"]["sac"]["batch_size"],
+            clamp_positive=cfg["sarfa"]["sac"]["clamp_positive"],
+            use_action_flip=cfg["sarfa"]["sac"]["use_action_flip"], 
+            flip_weight=cfg["sarfa"]["sac"]["flip_weight"],
+            occlude_only_last_frame=cfg["sarfa"]["sac"]["occlude_only_last_frame"]
         )
 
 
@@ -449,7 +468,8 @@ def main():
     if heat_vis.max() > 0:
         heat_vis = (heat_vis - heat_vis.min()) / (heat_vis.max() - heat_vis.min() + 1e-8)
         
-        # Applichiamo un threshold più morbido: mostriamo tutto ciò che è sopra la media
+        
+        #applying a softer threshold: we show everything above mean
         thr = np.mean(heat_vis) 
         heat_vis[heat_vis < thr] = 0.0
     

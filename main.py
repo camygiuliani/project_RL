@@ -4,7 +4,6 @@ from tqdm import tqdm,trange
 import torch
 import torch.nn.functional as F
 import torch.nn as nn
-import os
 import time
 from utils import load_config
 from ddqn import DDQN_Agent
@@ -81,9 +80,9 @@ def main():
                 save_dir=cfg["ppo"]["save_dir"],
                 eval_every=cfg["ppo"]["eval_every"],
             )
-            ppo_agent.train(total_steps=cfg["ppo"]["total_steps"])###########
+            ppo_agent.train(total_steps=cfg["ppo"]["total_steps"])
         
-        #Si deve sistemare mettendo il training nella classe come tutti gli altri
+        
 
         if args.sac:
             print("Starting Discrete SAC training...")
@@ -100,17 +99,17 @@ def main():
             #evaluate_dqn(model_hyperparams=dqn_hyperparams, model_path="runs/dqn/dqn_1000000.pt",
             #             env_id=env_id, n_episodes=10, device=device)  
         
-           #TODO: implement evaluation function for DDQN
+           # TODO: implement evaluation function for DDQN
         
             return 0  
         
         
         if args.ppo:
-            #TODO: implement evaluation function for PPO
+            # TODO: implement evaluation function for PPO
             return 0  
         
         if args.sac:
-            #TODO: implement evaluation function for SAC
+            # TODO: implement evaluation function for SAC
             return 0  
   
         

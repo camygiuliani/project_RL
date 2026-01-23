@@ -6,7 +6,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn as nn
-import ale_py 
 from wrappers import make_env
 
 
