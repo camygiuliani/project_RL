@@ -191,31 +191,37 @@ class SACDiscrete_Agent:
         gamma = self.cfg.gamma
         alpha = self.cfg.alpha
 
-        # -----------------------
-        # Target for critics
-        # V(s') = sum_a pi(a|s') [ min(Q1_t,Q2_t) - alpha*log pi(a|s') ]
-        # y = r + gamma*(1-done)*V(s')
-        # -----------------------
+        
+        #1) Soft policy evaluation step
         with torch.no_grad():
-            next_logits = self.actor(next_obs)                 # (N,A)
+            next_logits = self.actor(next_obs)
             next_probs, next_logp = self._policy_probs_and_logp(next_logits)
 
-            q1_next = self.q1_tgt(next_obs)                    # (N,A)
+            q1_next = self.q1_tgt(next_obs)                 
             q2_next = self.q2_tgt(next_obs)
-            qmin_next = torch.min(q1_next, q2_next)            # (N,A)
 
-            v_next = torch.sum(next_probs * (qmin_next - alpha * next_logp), dim=1)  # (N,)
-            y = rewards + gamma * (1.0 - dones) * v_next       # (N,)
+            #Prevent overestimation of Q-values.
+            #using two Q-functions to mitigate positive bias
+            qmin_next = torch.min(q1_next, q2_next)       
+
+            #1.1) Compute Value of next state V(s') explicitly
+            #     V(s') = sum [pi(a'|s')*( Q_min(s', a') - alpha * log pi(a'|s'))]
+
+            v_next = torch.sum(next_probs * (qmin_next - alpha * next_logp), dim=1) 
+            #1.2) Compute Soft Bellman Target 
+            #     y = r + gamma*(1-done)*V(s')
+            y = rewards + gamma * (1.0 - dones) * v_next      
 
         # -----------------------
         # Critic losses
         # We regress Q(s,a) to y.
         # -----------------------
-        q1_all = self.q1(obs)                                  # (N,A)
+        q1_all = self.q1(obs)                              
         q2_all = self.q2(obs)
         q1_sa = q1_all.gather(1, actions.view(-1, 1)).squeeze(1)
         q2_sa = q2_all.gather(1, actions.view(-1, 1)).squeeze(1)
 
+        #1.3) minimize MSE loss 
         q1_loss = F.mse_loss(q1_sa, y)
         q2_loss = F.mse_loss(q2_sa, y)
 
@@ -229,10 +235,6 @@ class SACDiscrete_Agent:
         nn.utils.clip_grad_norm_(self.q2.parameters(), self.cfg.max_grad_norm)
         self.q2_opt.step()
 
-        # -----------------------
-        # Actor loss (discrete SAC)
-        # J_pi = E_s [ sum_a pi(a|s) ( alpha*log pi(a|s) - min(Q1,Q2) ) ]
-        # -----------------------
         logits = self.actor(obs)
         probs, logp = self._policy_probs_and_logp(logits)
 
@@ -240,7 +242,11 @@ class SACDiscrete_Agent:
             q1_pi = self.q1(obs)
             q2_pi = self.q2(obs)
             qmin_pi = torch.min(q1_pi, q2_pi)
+        ####################################
 
+        #2) Actor update     
+        #   Calculate gradients for Actor
+        #   J_pi = sum [ pi * (alpha * log_pi - Q) ]
         actor_loss = torch.sum(probs * (alpha * logp - qmin_pi), dim=1).mean()
 
         self.actor_opt.zero_grad(set_to_none=True)
@@ -248,9 +254,8 @@ class SACDiscrete_Agent:
         nn.utils.clip_grad_norm_(self.actor.parameters(), self.cfg.max_grad_norm)
         self.actor_opt.step()
 
-        # -----------------------
-        # Target updates
-        # -----------------------
+        #3) Target soft updates
+        #   Stabilize training by slowly updating target networks.
         self._soft_update(self.q1, self.q1_tgt)
         self._soft_update(self.q2, self.q2_tgt)
 
