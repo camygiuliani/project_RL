@@ -25,7 +25,7 @@ ddqn:
   epsilon_decay: 1000000
   n_checkpoints: 5
   save_dir: runs/ddqn
-  path_sarfa_model: runs/ddqn/ddqn_final.pt
+  path_best_model: runs/ddqn/ddqn_final.pt
 
 ppo:
   gamma: 0.99
@@ -39,7 +39,7 @@ ppo:
   eval_every: 100000
   total_steps: 1000000
   save_dir: runs/ppo
-  path_sarfa_model: runs/ppo/ppo_final.pt
+  path_best_model: runs/ppo/ppo_final.pt
 
 sac:
   gamma: 0.99
@@ -56,7 +56,7 @@ sac:
   eval_every: 1000
   max_grad_norm: 10.0
   save_dir: runs/sac_discrete
-  path_sarfa_model: runs/sac_discrete/sac_final.pt
+  path_best_model: runs/sac_discrete/sac_final.pt
 
 sarfa:
   outdir: ./outputs
@@ -84,3 +84,7 @@ sarfa:
     flip_weight: 2.0
     occlude_only_last_frame: true
 
+
+eval:
+  n_episodes: 10
+ 
