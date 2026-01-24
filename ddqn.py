@@ -168,6 +168,7 @@ class DDQN_Agent:
         #final save
         self.save(final_path)
 
+    @torch.no_grad()
     def eval(self, seed, n_episodes: int = 10, path: str = None):    
         if path is not None:
             self.load(path)
@@ -190,9 +191,10 @@ class DDQN_Agent:
             print(f"Episode {ep+1}: return={R:.1f}")
 
         mean_return = float(np.mean(returns))
-        print("Mean return:", mean_return)
+        std_return = float(np.std(returns))
+        print(f"Mean return {mean_return} and std {std_return} over {n_episodes} episodes")
         env.close()
-        return mean_return
+        return mean_return, std_return
     
     def sync_target(self):
         self.tgt.load_state_dict(self.q.state_dict())
