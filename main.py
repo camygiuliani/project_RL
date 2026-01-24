@@ -22,6 +22,7 @@ def main():
     parser.add_argument('-sac', '--sac', action='store_true')
     parser.add_argument('-train', '--train', action='store_true')
     parser.add_argument('-eval', '--eval', action='store_true')
+    parser.add_argument("--eval_episodes", type=int, default=cfg["eval"]["n_episodes"])
     parser.add_argument('-render', '--render', action='store_true')
 
     args = parser.parse_args()
@@ -43,9 +44,9 @@ def main():
     
 
     #TRAINING SECTION 
-    if args.train:
+    #if args.train:
         
-        if args.ddqn:
+    if args.ddqn:
             print("Starting DQN training...")
 
             ddqn_agent = DDQN_Agent(env=env_id,n_channels= cfg['ddqn']['n_channels'],
@@ -54,17 +55,9 @@ def main():
                                    gamma=cfg['ddqn']['gamma'], 
                                    lr=cfg['ddqn']['lr'],
                                    double_dqn=True)            
-            ddqn_agent.train(
-                total_steps=cfg['ddqn']['total_steps'],
-                l_start=cfg['ddqn']['l_start'],
-                train_f=cfg['ddqn']['train_f'],
-                batch_size=cfg['ddqn']['batch_size'],
-                buffer_size= cfg['ddqn']['buffer_size'],
-                target_update=cfg['ddqn']['target_update'],
-                n_checkpoints=cfg['ddqn']['n_checkpoints'],
-                save_dir=cfg['ddqn']['save_dir'])
+           
         
-        if args.ppo:
+    if args.ppo:
 
             #PPO hyperparameters
             
@@ -80,38 +73,104 @@ def main():
                 save_dir=cfg["ppo"]["save_dir"],
                 eval_every=cfg["ppo"]["eval_every"],
             )
-            ppo_agent.train(total_steps=cfg["ppo"]["total_steps"])
+           
         
         
 
-        if args.sac:
+    if args.sac:
             print("Starting Discrete SAC training...")
             sac_agent = SACDiscrete_Agent(obs_shape=obs_shape,
                                           n_actions=n_actions,
                                           env_id=env_id,
                                           device=device)
-            
 
-    #EVALUATION SECTION
+    #######################################
+    #####      TRAINING BLOCK      #####
+    ######################################
+
+    if args.train:
+        if args.ddqn:
+              ddqn_agent.train(
+                total_steps=cfg['ddqn']['total_steps'],
+                l_start=cfg['ddqn']['l_start'],
+                train_f=cfg['ddqn']['train_f'],
+                batch_size=cfg['ddqn']['batch_size'],
+                buffer_size= cfg['ddqn']['buffer_size'],
+                target_update=cfg['ddqn']['target_update'],
+                n_checkpoints=cfg['ddqn']['n_checkpoints'],
+                save_dir=cfg['ddqn']['save_dir'])
+
+
+        elif args.ppo:
+              ppo_agent.train(total_steps=cfg["ppo"]["total_steps"])
+              
+        elif args.sac:
+              sac_agent.train(
+                total_steps=cfg['sac']['total_steps'],
+                batch_size=cfg['sac']['batch_size'],
+                buffer_size= cfg['sac']['buffer_size'],
+                start_steps=cfg['sac']['start_steps'],
+                update_every=cfg['sac']['update_every'],
+                n_updates=cfg['sac']['n_updates'],
+                save_dir=cfg['sac']['save_dir'])
+              
+        else:
+            raise ValueError("Choose one algorithm for training: --ddqn or --ppo or --sac")
+        
+    #########################################
+    #####      EVALUATION BLOCK      #####
+    #########################################
     if args.eval:
         
         if args.ddqn:
-            #evaluate_dqn(model_hyperparams=dqn_hyperparams, model_path="runs/dqn/dqn_1000000.pt",
-            #             env_id=env_id, n_episodes=10, device=device)  
-        
+            print("Starting DQN evaluation...\n")
+            ckpt=cfg["ddqn"]["path_best_model"]
+            agent=ddqn_agent
+            
+
            # TODO: implement evaluation function for DDQN
         
-            return 0  
+           
         
         
-        if args.ppo:
+        elif args.ppo:
+            print("Starting PPO evaluation...\n")
+            ckpt=cfg["ppo"]["path_best_model"]
+            agent=ppo_agent
+           
             # TODO: implement evaluation function for PPO
-            return 0  
+            
         
-        if args.sac:
+        elif args.sac:
+            print("Starting SAC evaluation...\n")
+            ckpt=cfg["sac"]["path_best_model"]
+            agent=sac_agent
+           
             # TODO: implement evaluation function for SAC
-            return 0  
+           
+        
+        else:
+            raise ValueError("Choose one algorithm for evaluation: --ddqn or --ppo or --sac")
+
+    
+   
+        # imposta quanti episodi valutare (se la classe lo supporta)
+        if hasattr(agent, "eval_episodes"):
+            agent.eval_episodes = args.eval_episodes
+
+        # loading model and evalauation
+        agent.load(ckpt)
+        out = agent.eval()
+
+        
+        mean_r, std_r = out
+    
+
+        print(f"[EVAL] algo={('ddqn' if args.ddqn else 'ppo' if args.ppo else 'sac')} ckpt={ckpt} "
+            f"episodes={args.eval_episodes} mean={mean_r:.2f} std={std_r:.2f}")
+
   
+    return 0
         
 if __name__ == "__main__":
     main()
