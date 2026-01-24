@@ -41,10 +41,9 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
-    
-
-    #TRAINING SECTION 
-    #if args.train:
+    #######################################
+    #####      AGENT INITIALIZATION      #####
+    ######################################
         
     if args.ddqn:
             print("Starting DQN training...")
@@ -58,9 +57,6 @@ def main():
            
         
     if args.ppo:
-
-            #PPO hyperparameters
-            
             print("Starting PPO training...")
             ppo_agent = PPO_Agent(
                 obs_shape=obs_shape,
@@ -75,8 +71,6 @@ def main():
             )
            
         
-        
-
     if args.sac:
             print("Starting Discrete SAC training...")
             sac_agent = SACDiscrete_Agent(obs_shape=obs_shape,
@@ -126,27 +120,19 @@ def main():
             print("Starting DQN evaluation...\n")
             ckpt=cfg["ddqn"]["path_best_model"]
             agent=ddqn_agent
-            
 
-           # TODO: implement evaluation function for DDQN
-        
-           
-        
         
         elif args.ppo:
             print("Starting PPO evaluation...\n")
             ckpt=cfg["ppo"]["path_best_model"]
             agent=ppo_agent
            
-            # TODO: implement evaluation function for PPO
-            
+           
         
         elif args.sac:
             print("Starting SAC evaluation...\n")
             ckpt=cfg["sac"]["path_best_model"]
             agent=sac_agent
-           
-            # TODO: implement evaluation function for SAC
            
         
         else:
@@ -154,7 +140,7 @@ def main():
 
     
    
-        # imposta quanti episodi valutare (se la classe lo supporta)
+        # how much eposides to evaluate, if classes have this attribute
         if hasattr(agent, "eval_episodes"):
             agent.eval_episodes = args.eval_episodes
 
