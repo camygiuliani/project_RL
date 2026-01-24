@@ -21,4 +21,11 @@ Potrebbe andare bene confrontare PPO e un algoritmo off-policy.
 Magari potreste partire con PPO e SAC, ed eventualmente estendere 
 l’analisi a DDQN se c’è tempo, visto che è comunque off-policy, ma è value-based.
 
+=========== 24 gen ===========
+-sistma print durante training
+- eval dentro SAC
+- controllare paper
+-graifici
+-file csv?
+
 
