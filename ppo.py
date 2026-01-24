@@ -204,8 +204,33 @@ class PPO_Agent:
         print(f"Saved final PPO: {final_path}")
         return final_path
     
-    def eval(self):
-        return
+    def eval(self, seed, n_episodes: int = 10, path: str = None):    
+        if path is not None:
+            self.load(path)
+        else:
+            print("No checkpoint provided.")
+            return -1
+
+        env = make_env(env_id=self.env, seed=seed)
+        returns = []
+        for ep in range(n_episodes):
+            obs, _ = env.reset()
+            done = False
+            R = 0.0
+            while not done:
+                a = self.act(obs, eps=0.0)
+                obs, r, terminated, truncated, _ = env.step(a)
+                done = terminated or truncated
+                R += r
+            returns.append(R)
+            print(f"Episode {ep+1}: return={R:.1f}")
+
+        mean_return = float(np.mean(returns))
+        std_return = float(np.std(returns))
+        print(f"Mean return {mean_return} and std {std_return} over {n_episodes} episodes")
+        env.close()
+        return mean_return, std_return
+
     
     def save(self, path):
         torch.save({"net": self.net.state_dict()}, path)
