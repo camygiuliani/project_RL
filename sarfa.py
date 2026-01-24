@@ -340,9 +340,9 @@ def main():
     parser.add_argument("--outdir", type=str, default=cfg["sarfa"]["outdir"])
     parser.add_argument("--seed", type=int, default=cfg["sarfa"]["seed"])
     parser.add_argument("--algo", type=str, default="ddqn", choices=["ddqn", "ppo","sac"])
-    parser.add_argument("--ddqn_model", type=str, default=cfg["ddqn"]["path_sarfa_model"])
-    parser.add_argument("--ppo_model", type=str, default=cfg["ppo"]["path_sarfa_model"])
-    parser.add_argument("--sac_model", type=str, default=cfg["sac"]["path_sarfa_model"])
+    parser.add_argument("--ddqn_model", type=str, default=cfg["ddqn"]["path_best_model"])
+    parser.add_argument("--ppo_model", type=str, default=cfg["ppo"]["path_best_model"])
+    parser.add_argument("--sac_model", type=str, default=cfg["sac"]["path_best_model"])
 
     args = parser.parse_args()
 
