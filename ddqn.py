@@ -6,7 +6,10 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.nn as nn
+from datetime import datetime
+
 from wrappers import make_env
+from utils import load_config
 
 
 
@@ -43,14 +46,17 @@ class DDQN_Agent:
         self.gamma = gamma
         self.double_dqn = double_dqn
         
-        #1.1 Initialize action-value function Q with random weights
+        # Initialize action-value function Q with random weights
         self.q = DDQNCNN(self.n_actions, self.n_channels).to(self.device)
-        #1.2 Initialize target action-value function Q with the same weights
+        # Initialize target action-value function Q with the same weights
         self.tgt = DDQNCNN(self.n_actions, self.n_channels).to(self.device)
         self.tgt.load_state_dict(self.q.state_dict())
         
         self.tgt.eval()
         self.optim = torch.optim.Adam(self.q.parameters(), lr=lr)
+
+        # loading yaml config
+        self.cfg = load_config("config.yaml")
 
     @torch.no_grad()
     def act(self, obs_arr, eps: float):
@@ -109,7 +115,13 @@ class DDQN_Agent:
         seed = 0  
         threshold = total_steps/n_checkpoints 
         c_threshold = threshold
-        final_path = os.path.join(save_dir, f"dqn_{total_steps}.pt")
+
+        # creating directory with date for saving runs
+        date = datetime.now().strftime("%Y_%m_%d")
+        outdir_runs = os.path.join(save_dir, date)
+        os.makedirs(outdir_runs, exist_ok=True)
+        # final path for saving the final model
+        final_path = os.path.join(outdir_runs, f"dqn_{total_steps}.pt")
 
         print(f"Using device: {self.device}")
         env = make_env(env_id=self.env, seed=seed)
@@ -123,7 +135,7 @@ class DDQN_Agent:
         ep_len = 0
         episode = 0
 
-        os.makedirs("checkpoints", exist_ok=True)
+        os.makedirs(f"checkpoints/ddqn", exist_ok=True)
 
         pbar = tqdm(range(1, total_steps + 1))
         for step in pbar:
@@ -160,8 +172,17 @@ class DDQN_Agent:
 
             # checkpoint
             if step > c_threshold:
-                ckpt_path = f"checkpoints/dqn_step_{step}.pt"
+
+                ckpt_dir= self.cfg["ddqn"]["checkpoints_dir"]
+                   
+                date = datetime.now().strftime("%Y_%m_%d")
+                time = datetime.now().strftime("%H_%M_%S")
+                outdir_ckpt = os.path.join(ckpt_dir, date)
+                os.makedirs(outdir_ckpt, exist_ok=True)
+
+                ckpt_path = os.path.join(outdir_ckpt, f"ddqn_step_{step}_{time}.pt")
                 self.save(ckpt_path)
+
                 c_threshold+=threshold
         env.close()
 

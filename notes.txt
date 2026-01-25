@@ -23,7 +23,7 @@ l’analisi a DDQN se c’è tempo, visto che è comunque off-policy, ma è valu
 
 =========== 24 gen ===========
 -sistma print durante training
-- eval dentro SAC
+- eval dentro SAC  [ok]
 - controllare paper
 -graifici
 -file csv?
