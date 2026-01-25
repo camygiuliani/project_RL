@@ -1,4 +1,7 @@
 import argparse
+import csv
+from datetime import datetime
+import os
 import numpy as np
 from tqdm import tqdm,trange
 import torch
@@ -119,23 +122,26 @@ def main():
         if args.ddqn:
             print("Starting DQN evaluation...\n")
             ckpt=cfg["ddqn"]["path_best_model"]
-            agent=ddqn_agent
-            agent.eval(seed=42, n_episodes=cfg["eval"]["n_episodes"], render=args.render)
+            csv_dir=cfg["ddqn"]["save_dir"]
 
+            agent=ddqn_agent
+            
         
         elif args.ppo:
             print("Starting PPO evaluation...\n")
             ckpt=cfg["ppo"]["path_best_model"]
+            csv_dir=cfg["ppo"]["save_dir"]
             agent=ppo_agent
-            agent.eval(seed=42, n_episodes=cfg["eval"]["n_episodes"], render=args.render)
            
            
         
         elif args.sac:
             print("Starting SAC evaluation...\n")
             ckpt=cfg["sac"]["path_best_model"]
+            csv_dir=cfg["sac"]["save_dir"]
+
             agent=sac_agent
-            agent.eval(seed=42, n_episodes=cfg["eval"]["n_episodes"], render=args.render)
+          
            
         
         else:
@@ -149,14 +155,38 @@ def main():
 
         # loading model and evalauation
         agent.load(ckpt)
-        out = agent.eval()
+        out = agent.eval(seed=cfg["eval"]["seed"],
+                        n_episodes=cfg["eval"]["n_episodes"],
+                        render=args.render)
 
         
         mean_r, std_r = out
+
+        
     
 
         print(f"[EVAL] algo={('ddqn' if args.ddqn else 'ppo' if args.ppo else 'sac')} ckpt={ckpt} "
             f"episodes={args.eval_episodes} mean={mean_r:.2f} std={std_r:.2f}")
+
+
+        #csv logging in a file
+        # salva CSV
+
+           
+        date_csv = datetime.now().strftime("%Y_%m_%d")
+        time_csv = datetime.now().strftime("%H_%M_%S")
+        outdir_csv = os.path.join(csv_dir, date_csv)
+        os.makedirs(outdir_csv, exist_ok=True)
+
+
+        csv_path =  os.path.join(outdir_csv, f"metrics_{time_csv}.csv")
+        file_exists = os.path.exists(csv_path)
+
+        with open(csv_path, "a", newline="") as f:
+            writer = csv.writer(f)
+            if not file_exists:
+                writer.writerow(["algo", "episodes", "mean_return", "std_return"])
+            writer.writerow(["ddqn", cfg["eval"]["episodes"], mean_r, std_r])
 
   
     return 0
