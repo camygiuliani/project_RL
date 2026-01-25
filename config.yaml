@@ -11,9 +11,8 @@ training:
 
 ddqn:
   n_channels: 4
-  n_actions: ?
   gamma: 0.99
-  lr: 1e-4
+  lr: 0.00001
   train_f: 4
   l_start: 50000
   double_dqn: true
@@ -24,13 +23,14 @@ ddqn:
   epsilon_end: 0.01
   epsilon_decay: 1000000
   n_checkpoints: 5
+  total_steps: 1000000
   save_dir: runs/ddqn
-  chckpoint_dir: checkpoints/ddqn
-  path_best_model: runs/ddqn/ddqn_final.pt
+  checkpoints_dir: checkpoints/ddqn
+  path_best_model: runs/ddqn/2026_01_25/ddqn_1000000.pt
 
 ppo:
   gamma: 0.99
-  lr: 3e-4
+  lr: 0.0003
   clip_eps: 0.2
   gae_lambda: 0.95
   rollout_steps: 128
@@ -46,7 +46,7 @@ ppo:
 sac:
   gamma: 0.99
   alpha: 0.2
-  actor_lr: 3e-4
+  actor_lr:  0.0003
   critic_lr: 3e-4
   batch_size: 128
   replay_size: 200000
@@ -66,7 +66,6 @@ sarfa:
   seed: 123
   stride: 4
   patch: 8
-  model: ?
   ddqn:
     fill_mode: "mean"
     batch_size: 64
