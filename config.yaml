@@ -25,6 +25,7 @@ ddqn:
   epsilon_decay: 1000000
   n_checkpoints: 5
   save_dir: runs/ddqn
+  chckpoint_dir: checkpoints/ddqn
   path_best_model: runs/ddqn/ddqn_final.pt
 
 ppo:
@@ -39,6 +40,7 @@ ppo:
   eval_every: 100000
   total_steps: 1000000
   save_dir: runs/ppo
+  checkpoints_dir: checkpoints/ppo
   path_best_model: runs/ppo/ppo_final.pt
 
 sac:
@@ -55,7 +57,8 @@ sac:
   total_steps: 10000
   eval_every: 1000
   max_grad_norm: 10.0
-  save_dir: runs/sac_discrete
+  save_dir: runs/sac
+  checkpoints_dir: checkpoints/sac
   path_best_model: runs/sac_discrete/sac_final.pt
 
 sarfa:
@@ -86,5 +89,6 @@ sarfa:
 
 
 eval:
+  seed: 42
   n_episodes: 10
  
