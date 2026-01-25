@@ -121,7 +121,7 @@ class DDQN_Agent:
         outdir_runs = os.path.join(save_dir, date)
         os.makedirs(outdir_runs, exist_ok=True)
         # final path for saving the final model
-        final_path = os.path.join(outdir_runs, f"dqn_{total_steps}.pt")
+        final_path = os.path.join(outdir_runs, f"ddqn_{total_steps}.pt")
 
         print(f"Using device: {self.device}")
         env = make_env(env_id=self.env, seed=seed)
@@ -191,7 +191,12 @@ class DDQN_Agent:
 
     @torch.no_grad()
     def eval(self, seed, n_episodes: int = 10, path: str = None):    
+        print(f"Loading checkpoint from: {path}")
         if path is not None:
+            print(f"Loading checkpoint from: {path}")
+            if not os.path.exists(path):
+                print(f"submitted checkpoint not found: {path}")
+                return -1
             self.load(path)
         else:
             print("No checkpoint provided.")
@@ -211,11 +216,11 @@ class DDQN_Agent:
             returns.append(R)
             print(f"Episode {ep+1}: return={R:.1f}")
 
-        mean_return = float(np.mean(returns))
-        std_return = float(np.std(returns))
+        mean_return = round(float(np.mean(returns)), 3)
+        std_return  = round(float(np.std(returns)), 3)
         print(f"Mean return {mean_return} and std {std_return} over {n_episodes} episodes")
         env.close()
-        return mean_return, std_return
+        return (mean_return, std_return)
     
     def sync_target(self):
         self.tgt.load_state_dict(self.q.state_dict())
