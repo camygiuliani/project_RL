@@ -12,7 +12,7 @@ from utils import load_config
 from wrappers import make_env
 from ppo import ActorCriticCNN
 from ddqn import DDQN_Agent,DDQNCNN
-from sac_discrete import DiscreteActor
+from sac import DiscreteActor
 
 
 def _get_fill_value(obs_uint8, mode="mean"):
@@ -331,10 +331,10 @@ def sarfa_heatmap_ppo(model, device, obs_input, patch=8, stride=4,
 
 def main():
 
+    # load config from config.yaml
     cfg = load_config("config.yaml")
     
     parser = argparse.ArgumentParser()
-    parser.add_argument("--model", type=str, default=cfg["sarfa"]["model"])
     parser.add_argument("--patch", type=int, default=cfg["sarfa"]["patch"])
     parser.add_argument("--stride", type=int, default=cfg["sarfa"]["stride"])
     parser.add_argument("--outdir", type=str, default=cfg["sarfa"]["outdir"])
@@ -397,8 +397,8 @@ def main():
 
     if args.algo == "ddqn":
         print("Using DDQN agent for SARFA...")
-        agent = DDQN_Agent(args.env, obs_shape[2], n_actions, device, double_dqn=True)   
-        agent.load(args.model)
+        agent = DDQN_Agent(env, obs_shape[2], n_actions, device, double_dqn=True)   
+        agent.load(args.ddqn_model)
         
         heat, action = sarfa_heatmap(
             agent, obs,
