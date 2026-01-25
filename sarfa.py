@@ -497,8 +497,14 @@ def main():
     plt.axis("off")
     plt.title(f"SARFA (Action: {action}) - {args.algo} - MaxHeat: {heat.max():.4f}")
     
-    timestamp = datetime.now().strftime("%H_%M_%S")
-    png_path = os.path.join(args.outdir, f"sarfa_{args.algo}_{timestamp}.png")
+    date = datetime.now().strftime("%Y_%m_%d")
+    time = datetime.now().strftime("%H_%M_%S")
+
+    outdir = os.path.join(args.outdir, date)
+    os.makedirs(outdir, exist_ok=True)
+
+    png_path = os.path.join(outdir, f"sarfa_{args.algo}_{time}.png")
+
     
     plt.savefig(png_path, dpi=200, bbox_inches="tight", pad_inches=0)
     plt.close()
