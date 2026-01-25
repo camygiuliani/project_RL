@@ -2,6 +2,7 @@ import gymnasium as gym
 import numpy as np
 import cv2
 from collections import deque
+import ale_py
 
 class AtariPreprocess(gym.ObservationWrapper):
     def __init__(self, env, width=84, height=84, grayscale=True):
