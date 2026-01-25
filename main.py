@@ -18,6 +18,9 @@ from sac import SACDiscrete_Agent, SACDiscreteConfig
 
 
 def main():
+
+    print("+++Importing configuration from config.yaml")
+    cfg = load_config("config.yaml")
     parser = argparse.ArgumentParser(description='Run training of selected RL algorithm.')
    
     parser.add_argument('-ddqn', '--ddqn', action='store_true')
@@ -30,17 +33,16 @@ def main():
 
     args = parser.parse_args()
 
-    print("Starting training script...importing configuration from config.yaml")
-    cfg = load_config("config.yaml")
+    #######################################
+    #####      ENVIRONMENT SETUP      ##### 
+    ######################################
     env_id = cfg["env"]["id"]
-
     temp_env = make_env(env_id)
     n_actions = temp_env.action_space.n
     obs_shape = temp_env.observation_space.shape
     temp_env.close()
     
-    print(f"Environment: {env_id}")
-    print(f"Detected Action Dimension: {n_actions}")
+    print(f"Environment: {env_id} with detected action dimension {n_actions} and observation shape {obs_shape}")
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
 
@@ -49,18 +51,19 @@ def main():
     ######################################
         
     if args.ddqn:
-            print("Starting DQN training...")
+            print("Initializing DDQN agent...")
 
             ddqn_agent = DDQN_Agent(env=env_id,n_channels= cfg['ddqn']['n_channels'],
                                    n_actions=n_actions, 
                                    device=device,
                                    gamma=cfg['ddqn']['gamma'], 
                                    lr=cfg['ddqn']['lr'],
-                                   double_dqn=True)            
+                                   double_dqn=True)         
+            info="DDQN"   
            
         
     if args.ppo:
-            print("Starting PPO training...")
+            print("Initializing PPO agent...")
             ppo_agent = PPO_Agent(
                 obs_shape=obs_shape,
                 n_actions=n_actions,
@@ -72,21 +75,24 @@ def main():
                 save_dir=cfg["ppo"]["save_dir"],
                 eval_every=cfg["ppo"]["eval_every"],
             )
+            info="PPO"   
            
         
     if args.sac:
-            print("Starting Discrete SAC training...")
+            print("Initializing SAC agent...")
             sac_agent = SACDiscrete_Agent(obs_shape=obs_shape,
                                           n_actions=n_actions,
                                           env_id=env_id,
                                           device=device)
+            info="SAC"   
 
     #######################################
     #####      TRAINING BLOCK      #####
     ######################################
-
+    start_train_time = time.time()
     if args.train:
         if args.ddqn:
+              print("Starting DDQN training...\n")
               ddqn_agent.train(
                 total_steps=cfg['ddqn']['total_steps'],
                 l_start=cfg['ddqn']['l_start'],
@@ -99,9 +105,11 @@ def main():
 
 
         elif args.ppo:
+              print("Starting PPO training...\n")
               ppo_agent.train(total_steps=cfg["ppo"]["total_steps"])
               
         elif args.sac:
+              print("Starting SAC training...\n")
               sac_agent.train(
                 total_steps=cfg['sac']['total_steps'],
                 batch_size=cfg['sac']['batch_size'],
@@ -114,13 +122,17 @@ def main():
         else:
             raise ValueError("Choose one algorithm for training: --ddqn or --ppo or --sac")
         
+        end_train_time = time.time()
+        train_duration = end_train_time - start_train_time
+        print(f"Training with {info} completed in {train_duration/60:.2f} minutes.")
+        
     ######################################
     #####      EVALUATION BLOCK      #####
     ######################################
     if args.eval:
         
         if args.ddqn:
-            print("Starting DQN evaluation...\n")
+            print("Starting DDQN evaluation...\n")
             ckpt=cfg["ddqn"]["path_best_model"]
             csv_dir=cfg["ddqn"]["save_dir"]
 
@@ -153,17 +165,13 @@ def main():
         if hasattr(agent, "eval_episodes"):
             agent.eval_episodes = args.eval_episodes
 
-        # loading model and evalauation
-        agent.load(ckpt)
+        # evaluation with loading the checkpoint
         out = agent.eval(seed=cfg["eval"]["seed"],
                         n_episodes=cfg["eval"]["n_episodes"],
-                        render=args.render)
+                        path=ckpt)
 
         
         mean_r, std_r = out
-
-        
-    
 
         print(f"[EVAL] algo={('ddqn' if args.ddqn else 'ppo' if args.ppo else 'sac')} ckpt={ckpt} "
             f"episodes={args.eval_episodes} mean={mean_r:.2f} std={std_r:.2f}")
@@ -186,7 +194,7 @@ def main():
             writer = csv.writer(f)
             if not file_exists:
                 writer.writerow(["algo", "episodes", "mean_return", "std_return"])
-            writer.writerow(["ddqn", cfg["eval"]["episodes"], mean_r, std_r])
+            writer.writerow(["ddqn", cfg["eval"]["n_episodes"], mean_r, std_r])
 
   
     return 0
