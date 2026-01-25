@@ -111,21 +111,23 @@ def main():
         else:
             raise ValueError("Choose one algorithm for training: --ddqn or --ppo or --sac")
         
-    #########################################
+    ######################################
     #####      EVALUATION BLOCK      #####
-    #########################################
+    ######################################
     if args.eval:
         
         if args.ddqn:
             print("Starting DQN evaluation...\n")
             ckpt=cfg["ddqn"]["path_best_model"]
             agent=ddqn_agent
+            agent.eval(seed=42, n_episodes=cfg["eval"]["n_episodes"], render=args.render)
 
         
         elif args.ppo:
             print("Starting PPO evaluation...\n")
             ckpt=cfg["ppo"]["path_best_model"]
             agent=ppo_agent
+            agent.eval(seed=42, n_episodes=cfg["eval"]["n_episodes"], render=args.render)
            
            
         
@@ -133,6 +135,7 @@ def main():
             print("Starting SAC evaluation...\n")
             ckpt=cfg["sac"]["path_best_model"]
             agent=sac_agent
+            agent.eval(seed=42, n_episodes=cfg["eval"]["n_episodes"], render=args.render)
            
         
         else:
