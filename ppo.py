@@ -1,9 +1,11 @@
+from datetime import datetime
 import os
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
+from utils import load_config
 from wrappers import make_env
 
 
@@ -40,6 +42,9 @@ class PPO_Agent:
         self.env_id = env_id
         self.seed = seed
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+        # loading yaml config
+        self.cfg = load_config("config.yaml")
 
         self.lr = lr
         self.gamma = gamma
@@ -146,14 +151,25 @@ class PPO_Agent:
                 nn.utils.clip_grad_norm_(self.net.parameters(), self.max_grad_norm)
                 self.opt.step()
 
-    def train(self, total_steps=1_000_000):
-        final_path = os.path.join(self.save_dir, f"ppo_{total_steps}.pt")
+    def train(self, total_steps=1_000_000,n_checkpoints:int=10):
+
+        # creating directory with date for saving runs
+        date = datetime.now().strftime("%Y_%m_%d")
+        outdir_runs = os.path.join(self.save_dir, date)
+        os.makedirs(outdir_runs, exist_ok=True)
+        # final path for saving the final model
+        final_path = os.path.join(outdir_runs, f"ppo_{total_steps}.pt")
+        
+        
 
         env = make_env(env_id=self.env_id, seed=self.seed)
         obs, _ = env.reset(seed=self.seed)
 
         step = 0
         next_eval = self.eval_every
+
+        threshold = total_steps/n_checkpoints 
+        c_threshold = threshold
 
         with tqdm(total=total_steps, desc="Training PPO", unit="step") as pbar:
             while step < total_steps:
@@ -189,44 +205,53 @@ class PPO_Agent:
                 self._update()
                 self.net.eval()
 
-                # eval + checkpoint
-                if step >= next_eval:
-                    mean_r, std_r = self.eval()
-        
-                    tqdm.write(f"[PPO ] step={step} eval_mean={mean_r:.2f} eval_std={std_r:.2f}")
-    
-                    ckpt_path = f"checkpoints/ppo_step_{step}.pt"
+                # checkpoint ( as in ddqn)
+                if step > c_threshold:
+                    
+                    ckpt_dir= self.cfg["ppo"]["checkpoints_dir"]
+                   
+                    date = datetime.now().strftime("%Y_%m_%d")
+                    time = datetime.now().strftime("%H_%M_%S")
+                    outdir_ckpt = os.path.join(ckpt_dir, date)
+                    os.makedirs(outdir_ckpt, exist_ok=True)
+
+                    ckpt_path = os.path.join(outdir_ckpt, f"ppo_step_{step}_{time}.pt")
                     self.save(ckpt_path)
-                    next_eval += self.eval_every
+                    
+                    c_threshold+=threshold
 
         env.close()
         self.save(final_path)
         print(f"Saved final PPO: {final_path}")
         return final_path
     
-    def eval(self, seed, n_episodes: int = 10, path: str = None):    
+    def eval(self, seed=0, n_episodes: int = 10, path: str = None):    
         if path is not None:
+            print(f"Loading checkpoint from: {path}")
+            if not os.path.exists(path):
+                print(f"Submitted checkpoint not found: {path}")
+                return -1
             self.load(path)
         else:
-            print("No checkpoint provided.")
+            print("No checkpoint provided or path is None.")
             return -1
 
-        env = make_env(env_id=self.env, seed=seed)
+        env = make_env(env_id=self.env_id, seed=seed)
         returns = []
         for ep in range(n_episodes):
             obs, _ = env.reset()
             done = False
             R = 0.0
             while not done:
-                a = self.act(obs, eps=0.0)
+                a,_,_ = self._act(obs)
                 obs, r, terminated, truncated, _ = env.step(a)
                 done = terminated or truncated
                 R += r
             returns.append(R)
             print(f"Episode {ep+1}: return={R:.1f}")
 
-        mean_return = float(np.mean(returns))
-        std_return = float(np.std(returns))
+        mean_return = round(float(np.mean(returns)), 3)
+        std_return  = round(float(np.std(returns)), 3)
         print(f"Mean return {mean_return} and std {std_return} over {n_episodes} episodes")
         env.close()
         return mean_return, std_return

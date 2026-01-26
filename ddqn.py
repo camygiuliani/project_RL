@@ -191,7 +191,6 @@ class DDQN_Agent:
 
     @torch.no_grad()
     def eval(self, seed, n_episodes: int = 10, path: str = None):    
-        print(f"Loading checkpoint from: {path}")
         if path is not None:
             print(f"Loading checkpoint from: {path}")
             if not os.path.exists(path):
@@ -199,7 +198,7 @@ class DDQN_Agent:
                 return -1
             self.load(path)
         else:
-            print("No checkpoint provided.")
+            print("No checkpoint provided or path is None.")
             return -1
 
         env = make_env(env_id=self.env, seed=seed)
