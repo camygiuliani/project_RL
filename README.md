@@ -6,6 +6,14 @@
 <!--........-->
 
 Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
+## Project structure
+**main.py**: training and evaluation entry point
+
+**sarfa.py**: SARFA-based visual explanations
+
+**dqn.py, ppo.py, sac.py**: RL algorithm implementations
+
+**config.yaml**: global configuration file 
 
 ## How to run the code
 ### 1. Clone the repository
@@ -73,21 +81,14 @@ python3 sarfa.py --algo sac
 Choose one algorithm at a time. Generated heatmaps are saved under: runs/sarfa/<date>  
 
 
-### Hardware notes
+## Hardware notes
 -GPU acceleration (CUDA) is supported but not required
 
 -The project runs on Linux and WSL
 
 -Training on CPU is significantly slower
 
-### Project structure
-**main.py**: training and evaluation entry point
 
-**sarfa.py**: SARFA-based visual explanations
-
-**dqn.py, ppo.py, sac.py**: RL algorithm implementations
-
-**config.yaml**: global configuration file
 
 ## References 
 - [1] [Explain Your Move: Understanding Agent Actions Using Specific and Relevant Feature Attribution ](https://arxiv.org/abs/1912.12191)
