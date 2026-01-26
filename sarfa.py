@@ -12,7 +12,7 @@ from utils import load_config
 from wrappers import make_env
 from ppo import ActorCriticCNN
 from ddqn import DDQN_Agent,DDQNCNN
-from sac import DiscreteActor
+from sac import SACDiscrete_Agent
 
 
 def _get_fill_value(obs_uint8, mode="mean"):
@@ -328,6 +328,40 @@ def sarfa_heatmap_ppo(model, device, obs_input, patch=8, stride=4,
 
     return heatmap, base_action
 
+@torch.no_grad()
+def sac_policy_logits(agent, obs_batch):
+    # obs_batch può essere np.ndarray o torch.Tensor
+    if isinstance(obs_batch, torch.Tensor):
+        x = obs_batch.to(agent.device)
+    else:
+        x = torch.from_numpy(obs_batch).to(agent.device)
+
+    # Convert to float
+    if x.dtype != torch.float32:
+        x = x.float()
+
+    # --- Detect layout and fix ---
+    # Case A: already NCHW (N,4,84,84)
+    if x.ndim == 4 and x.shape[1] == 4:
+        pass  # ok
+
+    # Case B: NHWC (N,84,84,4)
+    elif x.ndim == 4 and x.shape[-1] == 4:
+        x = x.permute(0, 3, 1, 2)
+
+    # Case C: weird (N,84,4,84) -> fix to (N,4,84,84)
+    elif x.ndim == 4 and x.shape[2] == 4:
+        x = x.permute(0, 2, 1, 3)
+
+    else:
+        raise ValueError(f"Unexpected obs shape for SAC actor: {tuple(x.shape)}")
+
+    # normalize
+    x = x / 255.0
+
+    logits = agent.actor(x)  # (N, A)
+    return logits
+
 
 def main():
 
@@ -350,6 +384,7 @@ def main():
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # set up environment
+
     try:
         env = make_env(env_id=cfg["env"]["id"], seed=args.seed, render_mode="rgb_array")
     except:
@@ -431,25 +466,24 @@ def main():
     else:  # sac
         print("Using SAC agent for SARFA...")
         ckpt = torch.load(args.sac_model, map_location=device)
-        sac_actor = DiscreteActor(in_channels=cfg["sarfa"]["sac"]["in_channels"],
-                                   n_actions=n_actions)
-        sac_actor = sac_actor.to(device)
-        sac_actor.load_state_dict(ckpt["actor"])
-        sac_actor.eval()
+
+        agent = SACDiscrete_Agent(  obs_shape=obs.shape,          # (84,84,4)
+                                    n_actions=n_actions,
+                                    device=device,
+                                    env_id=cfg["env"]["id"]
+                                )
+
+        agent.load(args.sac_model)
 
         heat, action = sarfa_heatmap_policy_logp(
-            sac_actor,
-            device, 
+            lambda x: sac_policy_logits(agent, x),
+            device,
             obs,
-            patch=args.patch, 
-            stride=args.stride,
-            fill_mode=cfg["sarfa"]["sac"]["fill_mode"], 
-            batch_size=cfg["sarfa"]["sac"]["batch_size"],
-            clamp_positive=cfg["sarfa"]["sac"]["clamp_positive"],
-            use_action_flip=cfg["sarfa"]["sac"]["use_action_flip"], 
-            flip_weight=cfg["sarfa"]["sac"]["flip_weight"],
-            occlude_only_last_frame=cfg["sarfa"]["sac"]["occlude_only_last_frame"]
+            patch=args.patch,
+            stride=args.stride
         )
+       
+
 
 
     # DEBUG: Controlliamo se la heatmap è vuota
