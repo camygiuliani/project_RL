@@ -1,4 +1,5 @@
 # sac_discrete.py
+from datetime import datetime
 import os
 from dataclasses import dataclass
 from typing import Optional, Tuple
@@ -7,6 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm, trange
+from utils import load_config
 from wrappers import make_env
 
 
@@ -37,7 +39,7 @@ class CNNEncoder(nn.Module):
     Input: (N,4,84,84) float in [0,1]
     Output: (N,512)
     """
-    def __init__(self, in_channels: int, n_actions: int):
+    def __init__(self, in_channels: int):
         super().__init__()
         self.conv = nn.Sequential(
             nn.Conv2d(in_channels, 32, kernel_size=8, stride=4), nn.ReLU(),
@@ -111,11 +113,25 @@ class SACDiscrete_Agent:
     """
 
     def __init__(self, obs_shape, n_actions: int, device: torch.device, 
-                 cfg: Optional[SACDiscreteConfig] = None, env_id="ALE/SpaceInvaders-v5"):
+                    env_id="ALE/SpaceInvaders-v5",
+                    gamma: float = 0.99,
+                    tau: float = 0.005,              # target soft update
+                    alpha: float = 0.2,              # entropy temperature (fixed, simple)
+                    actor_lr: float = 3e-4,
+                    critic_lr: float = 3e-4,
+                    batch_size: int = 128,
+                    replay_size: int = 200_000,
+                    start_steps: int = 20_000,       # collect before updating heavily
+                    updates_per_step: int = 1,       # how many gradient steps per env step after start
+                    max_grad_norm: float = 10.0):
+        
         self.obs_shape = obs_shape
         self.n_actions = n_actions
         self.device = device
-        self.cfg = cfg or SACDiscreteConfig()
+        
+        
+        # loading yaml config
+        self.cfg = load_config("config.yaml")
         self.env_id = env_id
 
         C = obs_shape[2]
@@ -134,12 +150,12 @@ class SACDiscrete_Agent:
         self.q2_tgt.eval()
 
         # Optims
-        self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=self.cfg.actor_lr)
-        self.q1_opt = torch.optim.Adam(self.q1.parameters(), lr=self.cfg.critic_lr)
-        self.q2_opt = torch.optim.Adam(self.q2.parameters(), lr=self.cfg.critic_lr)
+        self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=self.cfg["sac"]["actor_lr"])
+        self.q1_opt = torch.optim.Adam(self.q1.parameters(), lr=self.cfg["sac"]["critic_lr"])
+        self.q2_opt = torch.optim.Adam(self.q2.parameters(), lr=self.cfg["sac"]["critic_lr"])
 
         # Buffer
-        self.replay = ReplayBuffer(obs_shape, self.cfg.replay_size, device)
+        self.replay = ReplayBuffer(obs_shape, self.cfg["sac"]["replay_size"], device)
 
         # Counters
         self.total_steps = 0
@@ -283,11 +299,18 @@ class SACDiscrete_Agent:
     def train(self, env, total_steps: int, eval_every: int, log_every: int, save_dir: str):
         env = make_env(self.env_id)
 
-        os.makedirs(save_dir, exist_ok=True)
+        # creating directory with date for saving runs
+        date = datetime.now().strftime("%Y_%m_%d")
+        outdir_runs = os.path.join(save_dir, date)
+        os.makedirs(outdir_runs, exist_ok=True)
+        # final path for saving the final model
+        final_path = os.path.join(outdir_runs, f"sac_{total_steps}.pt")
 
         obs, _ = env.reset(seed=0)
         ep_ret = 0.0
         next_eval = eval_every
+
+        os.makedirs(f"checkpoints/sac", exist_ok=True)
 
         tqdm.write("Starting Discrete SAC training...")
         pbar = trange(1, total_steps + 1, desc="SAC training",leave=True)
@@ -309,8 +332,8 @@ class SACDiscrete_Agent:
                 ep_ret = 0.0
 
             # updates (off-policy)
-            if self.total_steps > cfg.start_steps and self.can_update():
-                logs=self.update_many(cfg.updates_per_step)
+            if self.total_steps > self.cfg["sac"]["start_steps"] and self.can_update():
+                logs=self.update_many(self.cfg["sac"]["updates_per_step"])
                     # stampa "umana" ogni tot step
             
             if step % log_every == 0 and logs is not None:
@@ -321,14 +344,20 @@ class SACDiscrete_Agent:
                 
             # checkpoint
             if step >= next_eval:
-                ckpt = os.path.join(save_dir, f"sac_step_{step}.pt")
-                self.save(ckpt)
-                #print(f"[SAC] saved checkpoint: {ckpt}")
+                ckpt_dir= self.cfg["sac"]["checkpoints_dir"]
+
+                date = datetime.now().strftime("%Y_%m_%d")
+                time = datetime.now().strftime("%H_%M_%S")
+                outdir_ckpt = os.path.join(ckpt_dir, date)
+                os.makedirs(outdir_ckpt, exist_ok=True)
+                ckpt_path = os.path.join(outdir_ckpt, f"sac_step_{step}_{time}.pt")
+
+                self.save(ckpt_path)
+
                 tqdm.write(f"[SAC] saved checkpoint at step {step}")
                 next_eval += eval_every
 
         env.close()
-        final_path = os.path.join(save_dir, "sac_final.pt")
         self.save(final_path)
         print(f"[SAC] saved final checkpoint: {final_path}")
 
@@ -339,22 +368,22 @@ class SACDiscrete_Agent:
             print("No checkpoint provided.")
             return -1
 
-        env = make_env(env_id=self.env, seed=seed)
+        env = make_env(env_id=self.env_id, seed=seed)
         returns = []
         for ep in range(n_episodes):
             obs, _ = env.reset()
             done = False
             R = 0.0
             while not done:
-                a = self.act(obs, eps=0.0)
+                a = self.act(obs, deterministic=True)
                 obs, r, terminated, truncated, _ = env.step(a)
                 done = terminated or truncated
                 R += r
             returns.append(R)
             print(f"Episode {ep+1}: return={R:.1f}")
 
-        mean_return = float(np.mean(returns))
-        std_return = float(np.std(returns))
+        mean_return = round(float(np.mean(returns)), 3)
+        std_return  = round(float(np.std(returns)), 3)
         print(f"Mean return {mean_return} and std {std_return} over {n_episodes} episodes")
         env.close()
         return mean_return, std_return
@@ -368,7 +397,6 @@ class SACDiscrete_Agent:
                 "q2": self.q2.state_dict(),
                 "q1_tgt": self.q1_tgt.state_dict(),
                 "q2_tgt": self.q2_tgt.state_dict(),
-                "cfg": self.cfg.__dict__,
                 "total_steps": self.total_steps,
                 "total_updates": self.total_updates,
             },
