@@ -1,6 +1,7 @@
 import argparse
 import csv
 from datetime import datetime
+from math import gamma
 import os
 import numpy as np
 from tqdm import tqdm,trange
@@ -68,7 +69,7 @@ def main():
                 obs_shape=obs_shape,
                 n_actions=n_actions,
                 env_id=env_id,
-                seed=cfg,
+                seed=cfg["ppo"]["seed"],
                 rollout_len=cfg["ppo"]["rollout_steps"],
                 n_epochs=cfg["ppo"]["epochs"],
                 batch_size=cfg["ppo"]["batch_size"],
@@ -81,9 +82,19 @@ def main():
     if args.sac:
             print("Initializing SAC agent...")
             sac_agent = SACDiscrete_Agent(obs_shape=obs_shape,
-                                          n_actions=n_actions,
-                                          env_id=env_id,
-                                          device=device)
+                                            n_actions=n_actions,
+                                            env_id=env_id,
+                                            device=device,
+                                            gamma= cfg['sac']['gamma'],
+                                            tau = cfg['sac']['tau'],              # target soft update
+                                            alpha = cfg['sac']['alpha'],              # entropy temperature (fixed, simple)
+                                            actor_lr = cfg['sac']['actor_lr'],
+                                            critic_lr= cfg['sac']['critic_lr'],
+                                            batch_size = cfg['sac']['batch_size'],
+                                            replay_size = cfg['sac']['replay_size'],
+                                            start_steps = cfg['sac']['start_steps'],       # collect before updating heavily
+                                            updates_per_step = cfg['sac']['updates_per_step'],       # how many gradient steps per env step after start
+                                            max_grad_norm = cfg['sac']['max_grad_norm'])
             info="SAC"   
 
     #######################################
@@ -106,17 +117,15 @@ def main():
 
         elif args.ppo:
               print("Starting PPO training...\n")
-              ppo_agent.train(total_steps=cfg["ppo"]["total_steps"])
+              ppo_agent.train(total_steps=cfg["ppo"]["total_steps"],
+                              n_checkpoints=cfg["ppo"]["n_checkpoints"])
               
         elif args.sac:
               print("Starting SAC training...\n")
-              sac_agent.train(
+              sac_agent.train(env=env_id,
                 total_steps=cfg['sac']['total_steps'],
-                batch_size=cfg['sac']['batch_size'],
-                buffer_size= cfg['sac']['buffer_size'],
-                start_steps=cfg['sac']['start_steps'],
-                update_every=cfg['sac']['update_every'],
-                n_updates=cfg['sac']['n_updates'],
+                log_every=cfg['sac']['log_every'],
+                eval_every=cfg['sac']['eval_every'],
                 save_dir=cfg['sac']['save_dir'])
               
         else:
