@@ -8,7 +8,86 @@
 Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
 
 ## How to run the code
-... blaaa
+### 1. Clone the repository
+```bash
+git clone https://github.com/USERNAME/project_RL.git
+cd project_RL
+```
+### 2. Create and activate a virtual environment
+The project was developed and tested with Python 3.12.3
+```bash
+python3 -m venv venv
+source venv/bin/activate
+```
+### 3. Install dependencies
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Configuration
+All hyperparameters, paths, and experimental settings are defined in a single configuration file: **config.yaml**. This includes:
+
+-environment name
+
+-training hyperparameters
+
+-evaluation settings
+
+-checkpoint paths
+
+-SARFA parameters
+
+### 5. Train an agent
+Training is handled via **main.py**.
+Choose one algorithm at a time.
+#### DDQN
+```bash
+python3 main.py --train --ddqn
+```
+#### PPO
+```bash
+python3 main.py --train --ppo
+```
+#### SAC
+```bash
+python3 main.py --train --sac
+```
+Training outputs and checkpoints are saved under:  runs/<algorithm>/
+
+### 6. Evaluate a trained agent
+To evaluate a trained model over multiple episodes:
+```bash
+python3 main.py --eval --ddqn
+python3 main.py --eval --ppo
+python3 main.py --eval --sac
+```
+Choose one algorithm at a time. Evaluation reports mean and standard deviation of episodic returns.
+
+### 7. Run SARFA explanations
+SARFA visual explanations can be generated for each trained agent: 
+```bash
+python3 sarfa.py --algo ddqn
+python3 sarfa.py --algo ppo
+python3 sarfa.py --algo sac
+```
+Choose one algorithm at a time. Generated heatmaps are saved under: runs/sarfa/<date>  
+
+
+### Hardware notes
+-GPU acceleration (CUDA) is supported but not required
+
+-The project runs on Linux and WSL
+
+-Training on CPU is significantly slower
+
+### Project structure
+**main.py**: training and evaluation entry point
+
+**sarfa.py**: SARFA-based visual explanations
+
+**dqn.py, ppo.py, sac.py**: RL algorithm implementations
+
+**config.yaml**: global configuration file
 
 ## References 
 - [1] [Explain Your Move: Understanding Agent Actions Using Specific and Relevant Feature Attribution ](https://arxiv.org/abs/1912.12191)
