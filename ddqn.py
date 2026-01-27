@@ -190,7 +190,7 @@ class DDQN_Agent:
         self.save(final_path)
 
     @torch.no_grad()
-    def eval(self, seed, n_episodes: int = 10, path: str = None):    
+    def eval(self, seed, n_episodes: int = 10, path: str = None, render_mode=None):    
         if path is not None:
             print(f"Loading checkpoint from: {path}")
             if not os.path.exists(path):
@@ -201,7 +201,7 @@ class DDQN_Agent:
             print("No checkpoint provided or path is None.")
             return -1
 
-        env = make_env(env_id=self.env, seed=seed)
+        env = make_env(env_id=self.env, seed=seed, render_mode=render_mode)
         returns = []
         for ep in range(n_episodes):
             obs, _ = env.reset()

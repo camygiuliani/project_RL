@@ -36,7 +36,7 @@ def main():
 
     #######################################
     #####      ENVIRONMENT SETUP      ##### 
-    ######################################
+    #######################################
     env_id = cfg["env"]["id"]
     temp_env = make_env(env_id)
     n_actions = temp_env.action_space.n
@@ -48,8 +48,8 @@ def main():
     print(f"Using device: {device}")
 
     #######################################
-    #####      AGENT INITIALIZATION      #####
-    ######################################
+    #####     AGENT INITIALIZATION    #####
+    #######################################
         
     if args.ddqn:
             print("Initializing DDQN agent...")
@@ -97,9 +97,9 @@ def main():
                                             max_grad_norm = cfg['sac']['max_grad_norm'])
             info="SAC"   
 
-    #######################################
+    ####################################
     #####      TRAINING BLOCK      #####
-    ######################################
+    ####################################
     start_train_time = time.time()
     if args.train:
         if args.ddqn:
@@ -163,8 +163,6 @@ def main():
 
             agent=sac_agent
           
-           
-        
         else:
             raise ValueError("Choose one algorithm for evaluation: --ddqn or --ppo or --sac")
 
@@ -175,15 +173,16 @@ def main():
             agent.eval_episodes = args.eval_episodes
 
         # evaluation with loading the checkpoint
+        n_ep = cfg["eval"]["n_episodes"] if not args.render else cfg["eval"]["n_episodes_render"]
         out = agent.eval(seed=cfg["eval"]["seed"],
-                        n_episodes=cfg["eval"]["n_episodes"],
-                        path=ckpt)
+                        n_episodes=n_ep,
+                        path=ckpt, render_mode=None if not args.render else "human")
 
         
         mean_r, std_r = out
 
         print(f"[EVAL] algo={('ddqn' if args.ddqn else 'ppo' if args.ppo else 'sac')} ckpt={ckpt} "
-            f"episodes={args.eval_episodes} mean={mean_r:.2f} std={std_r:.2f}")
+            f"episodes={n_ep} mean={mean_r:.2f} std={std_r:.2f}")
 
 
         #csv logging in a file
@@ -203,7 +202,7 @@ def main():
             writer = csv.writer(f)
             if not file_exists:
                 writer.writerow(["algo", "episodes", "mean_return", "std_return"])
-            writer.writerow(["ddqn", cfg["eval"]["n_episodes"], mean_r, std_r])
+            writer.writerow(["ddqn", n_ep, mean_r, std_r])
 
   
     return 0

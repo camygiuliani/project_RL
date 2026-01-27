@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from tqdm import tqdm
+from tqdm import tqdm, trange
 from utils import load_config
 from wrappers import make_env
 
@@ -81,7 +81,7 @@ class PPO_Agent:
         torch.manual_seed(self.seed)
 
     @torch.no_grad()
-    def _act(self, obs_uint8):
+    def act(self, obs_uint8):
         x = torch.from_numpy(obs_uint8).to(self.device)
         x = x.permute(2, 0, 1).unsqueeze(0).float() / 255.0  # (1,4,84,84)
         logits, value = self.net(x)
@@ -91,7 +91,7 @@ class PPO_Agent:
         return int(action.item()), float(logp.item()), float(value.item())
 
     @torch.no_grad()
-    def _value(self, obs_uint8):
+    def value(self, obs_uint8):
         x = torch.from_numpy(obs_uint8).to(self.device)
         x = x.permute(2, 0, 1).unsqueeze(0).float() / 255.0
         _, v = self.net(x)
@@ -116,7 +116,7 @@ class PPO_Agent:
         env.close()
         return float(np.mean(rets)), float(np.std(rets))
         
-    def _update(self):
+    def update(self):
         # to torch
         obs_t = torch.from_numpy(self.buffer.obs).to(self.device).permute(0, 3, 1, 2).float() / 255.0
         actions_t = torch.from_numpy(self.buffer.actions).to(self.device)
@@ -151,7 +151,14 @@ class PPO_Agent:
                 nn.utils.clip_grad_norm_(self.net.parameters(), self.max_grad_norm)
                 self.opt.step()
 
-    def train(self, total_steps=1_000_000,n_checkpoints:int=10):
+                return {
+                    "loss": float(loss.item()),
+                    "actor_loss": float(actor_loss.item()),
+                    "critic_loss": float(critic_loss.item()),
+                    "entropy": float(entropy.item())
+                }
+
+    def train(self, total_steps=1_000_000,n_checkpoints:int=10, log_every=1_000):
 
         # creating directory with date for saving runs
         date = datetime.now().strftime("%Y_%m_%d")
@@ -170,62 +177,70 @@ class PPO_Agent:
 
         threshold = total_steps/n_checkpoints 
         c_threshold = threshold
+        
+        tqdm.write("Starting Discrete PPO training...")
+        pbar = trange(1, total_steps + 1, desc="PPO training",leave=True)       
+        for step in pbar:
+            self.buffer.reset()
 
-        with tqdm(total=total_steps, desc="Training PPO", unit="step") as pbar:
-            while step < total_steps:
-                self.buffer.reset()
+            # collect rollout
+            for _ in range(self.rollout_len):
+                logs = None
+                action, logp, value = self.act(obs)
 
-                # collect rollout
-                for _ in range(self.rollout_len):
-                    action, logp, value = self._act(obs)
-                    next_obs, reward, term, trunc, _ = env.step(action)
-                    done = term or trunc
+                next_obs, reward, term, trunc, _ = env.step(action)
+                done = term or trunc
 
-                    self.buffer.add(obs, action, reward, done, value, logp)
+                self.buffer.add(obs, action, reward, done, value, logp)
 
-                    obs = next_obs
-                    step += 1
-                    
-                    # 3. Update the progress bar by 1 step
-                    pbar.update(1)
+                obs = next_obs
+                step += 1
+                
+                # 3. Update the progress bar by 1 step
+                pbar.update(1)
 
-                    if done:
-                        obs, _ = env.reset()
+                if done:
+                    obs, _ = env.reset()
 
-                    if step >= total_steps:
-                        break
+                if step >= total_steps:
+                    break
 
-                # bootstrap value for last state
-                last_v = self._value(obs)
-                self.buffer.full = True
-                self.buffer.compute_returns_and_advantages(last_value=last_v)
+            # bootstrap value for last state
+            last_v = self.value(obs)
+            self.buffer.full = True
+            self.buffer.compute_returns_and_advantages(last_value=last_v)
 
-                # update
-                self.net.train()
-                self._update()
-                self.net.eval()
+            # update
+            self.net.train()
+            logs =self.update()
 
-                # checkpoint ( as in ddqn)
-                if step > c_threshold:
-                    
-                    ckpt_dir= self.cfg["ppo"]["checkpoints_dir"]
-                   
-                    date = datetime.now().strftime("%Y_%m_%d")
-                    time = datetime.now().strftime("%H_%M_%S")
-                    outdir_ckpt = os.path.join(ckpt_dir, date)
-                    os.makedirs(outdir_ckpt, exist_ok=True)
+            if step % log_every == 0 and logs is not None:
+                tqdm.write(
+                    f"[step {step}] q1={logs['q1_loss']:.2f} "
+                    f"q2={logs['q2_loss']:.2f} actor={logs['actor_loss']:.2f}"
+                )
 
-                    ckpt_path = os.path.join(outdir_ckpt, f"ppo_step_{step}_{time}.pt")
-                    self.save(ckpt_path)
-                    
-                    c_threshold+=threshold
+            # checkpoint ( as in ddqn)
+            if step > c_threshold:
+                
+                ckpt_dir= self.cfg["ppo"]["checkpoints_dir"]
+                
+                date = datetime.now().strftime("%Y_%m_%d")
+                time = datetime.now().strftime("%H_%M_%S")
+                outdir_ckpt = os.path.join(ckpt_dir, date)
+                os.makedirs(outdir_ckpt, exist_ok=True)
+
+                ckpt_path = os.path.join(outdir_ckpt, f"ppo_step_{step}_{time}.pt")
+                self.save(ckpt_path)
+                
+                c_threshold+=threshold
 
         env.close()
         self.save(final_path)
         print(f"Saved final PPO: {final_path}")
         return final_path
     
-    def eval(self, seed=0, n_episodes: int = 10, path: str = None):    
+    def eval(self, seed=0, n_episodes: int = 10, path: str = None, render_mode=None):    
         if path is not None:
             print(f"Loading checkpoint from: {path}")
             if not os.path.exists(path):
@@ -236,14 +251,14 @@ class PPO_Agent:
             print("No checkpoint provided or path is None.")
             return -1
 
-        env = make_env(env_id=self.env_id, seed=seed)
+        env = make_env(env_id=self.env_id, seed=seed, render_mode=render_mode)
         returns = []
         for ep in range(n_episodes):
             obs, _ = env.reset()
             done = False
             R = 0.0
             while not done:
-                a,_,_ = self._act(obs)
+                a,_,_ = self.act(obs)
                 obs, r, terminated, truncated, _ = env.step(a)
                 done = terminated or truncated
                 R += r

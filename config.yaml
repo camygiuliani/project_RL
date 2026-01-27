@@ -51,7 +51,7 @@ sac:
   critic_lr: 0.0003
   batch_size: 128
   replay_size: 200000
-  start_steps: 20000
+  start_steps: 200
   tau: 0.005
   updates_per_step: 1
   log_every: 1000
@@ -60,7 +60,7 @@ sac:
   max_grad_norm: 10.0
   save_dir: runs/sac
   checkpoints_dir: checkpoints/sac
-  path_best_model: runs/sac/2026_01_26/sac_10000.pt
+  path_best_model: runs/sac/2026_01_27/sac_10000.pt
 
 sarfa:
   outdir: ./outputs
@@ -91,4 +91,5 @@ sarfa:
 eval:
   seed: 42
   n_episodes: 10
+  n_episodes_render: 1
  

@@ -176,7 +176,7 @@ class SACDiscrete_Agent:
         return a
     
     def _soft_update(self, net: nn.Module, tgt: nn.Module):
-        tau = self.cfg.tau
+        tau = self.cfg["sac"]["tau"]
         for p, pt in zip(net.parameters(), tgt.parameters()):
             pt.data.mul_(1.0 - tau)
             pt.data.add_(tau * p.data)
@@ -193,7 +193,7 @@ class SACDiscrete_Agent:
         return probs, log_probs
 
     def can_update(self) -> bool:
-        return len(self.replay) >= self.cfg.batch_size
+        return len(self.replay) >= self.cfg["sac"]["batch_size"]
 
     def update(self) -> dict:
         """
@@ -203,9 +203,9 @@ class SACDiscrete_Agent:
         if not self.can_update():
             return {}
 
-        obs, actions, rewards, next_obs, dones = self.replay.sample(self.cfg.batch_size)
-        gamma = self.cfg.gamma
-        alpha = self.cfg.alpha
+        obs, actions, rewards, next_obs, dones = self.replay.sample(self.cfg["sac"]["batch_size"])
+        gamma = self.cfg["sac"]["gamma"]
+        alpha = self.cfg["sac"]["alpha"]
 
         
         #1) Soft policy evaluation step
@@ -243,12 +243,12 @@ class SACDiscrete_Agent:
 
         self.q1_opt.zero_grad(set_to_none=True)
         q1_loss.backward()
-        nn.utils.clip_grad_norm_(self.q1.parameters(), self.cfg.max_grad_norm)
+        nn.utils.clip_grad_norm_(self.q1.parameters(), self.cfg["sac"]["max_grad_norm"])
         self.q1_opt.step()
 
         self.q2_opt.zero_grad(set_to_none=True)
         q2_loss.backward()
-        nn.utils.clip_grad_norm_(self.q2.parameters(), self.cfg.max_grad_norm)
+        nn.utils.clip_grad_norm_(self.q2.parameters(), self.cfg["sac"]["max_grad_norm"])
         self.q2_opt.step()
 
         logits = self.actor(obs)
@@ -267,7 +267,7 @@ class SACDiscrete_Agent:
 
         self.actor_opt.zero_grad(set_to_none=True)
         actor_loss.backward()
-        nn.utils.clip_grad_norm_(self.actor.parameters(), self.cfg.max_grad_norm)
+        nn.utils.clip_grad_norm_(self.actor.parameters(), self.cfg["sac"]["max_grad_norm"])
         self.actor_opt.step()
 
         #3) Target soft updates
@@ -361,14 +361,14 @@ class SACDiscrete_Agent:
         self.save(final_path)
         print(f"[SAC] saved final checkpoint: {final_path}")
 
-    def eval(self, seed, n_episodes: int = 10, path: str = None):    
+    def eval(self, seed, n_episodes: int = 10, path: str = None, render_mode = None):    
         if path is not None:
             self.load(path)
         else:
             print("No checkpoint provided.")
             return -1
 
-        env = make_env(env_id=self.env_id, seed=seed)
+        env = make_env(env_id=self.env_id, seed=seed, render_mode=render_mode)
         returns = []
         for ep in range(n_episodes):
             obs, _ = env.reset()
