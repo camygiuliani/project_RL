@@ -338,7 +338,14 @@ class SACDiscrete_Agent:
             
             if step % log_every == 0:
                 if logs is not None:
-                    tqdm.write(f"[step {step}] q1={logs['q1_loss']:.2f} ...")
+                   tqdm.write(
+                    f"[step {step}] "
+                    f"q1={logs['q1_loss']:.3f} "
+                    f"q2={logs['q2_loss']:.3f} "
+                    f"actor={logs['actor_loss']:.3f} "
+                    f"alpha={logs['alpha']:.3f}"
+                   )
+
                 else:
                     tqdm.write(f"[step {step}] Collecting data... (No update yet)")
                             

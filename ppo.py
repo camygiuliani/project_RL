@@ -218,7 +218,7 @@ class PPO_Agent:
             if g_step % log_every == 0 and logs is not None:
                 tqdm.write(
                     f"[step {step}] loss={logs['loss']:.2f} "
-                    f"critic={logs['critic_loss']:.2f} actor={logs['actor_loss']:.2f}"
+                    f"critic={logs['critic_loss']:.2f} actor={logs['actor_loss']:.2f} entropy={logs['entropy']:.2f}"
                 )
                     
             # checkpoint ( as in ddqn)
