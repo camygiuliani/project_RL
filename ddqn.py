@@ -109,7 +109,7 @@ class DDQN_Agent:
         return float(loss.item())
     
     def train(self, batch_size:int, buffer_size:int, total_steps:int,
-               l_start:int, train_f:int, target_update:int, n_checkpoints:int,
+               l_start:int, train_f:int, target_update:int, n_checkpoints:int, log_every:int=1000,
                save_dir: str = "runs/ddqn"):
         
         seed = 0  
@@ -139,6 +139,8 @@ class DDQN_Agent:
 
         pbar = tqdm(range(1, total_steps + 1))
         for step in pbar:
+            logs = None
+
             eps = linear_eps(step)
             #2 Random action selection
             action = self.act(obs, eps)
@@ -164,12 +166,21 @@ class DDQN_Agent:
             if step > l_start and step % train_f == 0:
                 #5 Sample random minibatch of transitions (x,a,r,x',done) from replay memory
                 batch = rb.sample(batch_size)
-                loss = self.update(batch)
+                logs = self.update(batch)
 
             # target update
             if step % target_update == 0:
                 self.sync_target()
 
+            if step % log_every == 0 and logs is not None:
+                tqdm.write(
+                    f"[step {step}] q1={logs['q1_loss']:.2f} "
+                    f"q2={logs['q2_loss']:.2f} actor={logs['actor_loss']:.2f}"
+                )
+            elif logs is None:
+                if step % log_every == 0:
+                    tqdm.write(f"[step {step}] no update")
+                    
             # checkpoint
             if step > c_threshold:
 

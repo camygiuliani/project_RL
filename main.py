@@ -112,15 +112,18 @@ def main():
                 buffer_size= cfg['ddqn']['buffer_size'],
                 target_update=cfg['ddqn']['target_update'],
                 n_checkpoints=cfg['ddqn']['n_checkpoints'],
+                log_every=cfg['ddqn']['log_every'],
                 save_dir=cfg['ddqn']['save_dir'])
 
 
-        elif args.ppo:
+        if args.ppo:
               print("Starting PPO training...\n")
               ppo_agent.train(total_steps=cfg["ppo"]["total_steps"],
-                              n_checkpoints=cfg["ppo"]["n_checkpoints"])
+                              n_checkpoints=cfg["ppo"]["n_checkpoints"],
+                              log_every=cfg["ppo"]["log_every"],
+                              save_dir=cfg["ppo"]["save_dir"])
               
-        elif args.sac:
+        if args.sac:
               print("Starting SAC training...\n")
               sac_agent.train(env=env_id,
                 total_steps=cfg['sac']['total_steps'],

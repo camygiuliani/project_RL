@@ -158,7 +158,7 @@ class PPO_Agent:
                     "entropy": float(entropy.item())
                 }
 
-    def train(self, total_steps=1_000_000,n_checkpoints:int=10, log_every=1_000):
+    def train(self, total_steps=1_000_000, save_dir: str = None, n_checkpoints: int = 10, log_every: int = 1_000):
 
         # creating directory with date for saving runs
         date = datetime.now().strftime("%Y_%m_%d")
@@ -173,6 +173,7 @@ class PPO_Agent:
         obs, _ = env.reset(seed=self.seed)
 
         step = 0
+        g_step = 0
         next_eval = self.eval_every
 
         threshold = total_steps/n_checkpoints 
@@ -194,7 +195,7 @@ class PPO_Agent:
                 self.buffer.add(obs, action, reward, done, value, logp)
 
                 obs = next_obs
-                step += 1
+                g_step += 1
                 
                 # 3. Update the progress bar by 1 step
                 pbar.update(1)
@@ -214,12 +215,12 @@ class PPO_Agent:
             self.net.train()
             logs =self.update()
 
-            if step % log_every == 0 and logs is not None:
+            if g_step % log_every == 0 and logs is not None:
                 tqdm.write(
-                    f"[step {step}] q1={logs['q1_loss']:.2f} "
-                    f"q2={logs['q2_loss']:.2f} actor={logs['actor_loss']:.2f}"
+                    f"[step {step}] loss={logs['loss']:.2f} "
+                    f"critic={logs['critic_loss']:.2f} actor={logs['actor_loss']:.2f}"
                 )
-
+                    
             # checkpoint ( as in ddqn)
             if step > c_threshold:
                 

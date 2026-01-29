@@ -23,6 +23,7 @@ ddqn:
   epsilon_end: 0.01
   epsilon_decay: 1000000
   n_checkpoints: 5
+  log_every: 1000
   total_steps: 1000000
   save_dir: runs/ddqn
   checkpoints_dir: checkpoints/ddqn
@@ -37,8 +38,9 @@ ppo:
   epochs: 4
   batch_size: 64
   seed: 0
-  eval_every: 100000
-  total_steps: 1000000
+  eval_every: 100
+  log_every: 1000
+  total_steps: 10000
   n_checkpoints: 5
   save_dir: runs/ppo
   checkpoints_dir: checkpoints/ppo

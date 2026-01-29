@@ -336,12 +336,12 @@ class SACDiscrete_Agent:
                 logs=self.update_many(self.cfg["sac"]["updates_per_step"])
                     # stampa "umana" ogni tot step
             
-            if step % log_every == 0 and logs is not None:
-                tqdm.write(
-                    f"[step {step}] q1={logs['q1_loss']:.2f} "
-                    f"q2={logs['q2_loss']:.2f} actor={logs['actor_loss']:.2f}"
-                )
-                
+            if step % log_every == 0:
+                if logs is not None:
+                    tqdm.write(f"[step {step}] q1={logs['q1_loss']:.2f} ...")
+                else:
+                    tqdm.write(f"[step {step}] Collecting data... (No update yet)")
+                            
             # checkpoint
             if step >= next_eval:
                 ckpt_dir= self.cfg["sac"]["checkpoints_dir"]

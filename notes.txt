@@ -29,6 +29,7 @@ l’analisi a DDQN se c’è tempo, visto che è comunque off-policy, ma è valu
 =========== 27 gen ===========
 
 riorganizzare gli argomenti delle funzioni init e train in ppo e sac, aggiungendo la directory per i checkpoint
+- next_eval meccanismo pure sugli altri oltre sac
 
 
 -render per eval?
