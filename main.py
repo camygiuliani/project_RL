@@ -189,16 +189,14 @@ def main():
 
 
         #csv logging in a file
-        # salva CSV
 
-           
         date_csv = datetime.now().strftime("%Y_%m_%d")
         time_csv = datetime.now().strftime("%H_%M_%S")
         outdir_csv = os.path.join(csv_dir, date_csv)
         os.makedirs(outdir_csv, exist_ok=True)
 
 
-        csv_path =  os.path.join(outdir_csv, f"metrics_{time_csv}.csv")
+        csv_path =  os.path.join(outdir_csv, f"metrics_eval_{time_csv}.csv")
         file_exists = os.path.exists(csv_path)
 
         with open(csv_path, "a", newline="") as f:
