@@ -5,7 +5,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm, trange
-from utils import load_config
+from utils import load_config, save_training_csv
 from wrappers import make_env
 
 
@@ -166,7 +166,23 @@ class PPO_Agent:
         os.makedirs(outdir_runs, exist_ok=True)
         # final path for saving the final model
         final_path = os.path.join(outdir_runs, f"ppo_{total_steps}.pt")
+        ## path for csv file
+        final_path_csv = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
         
+
+        # for csv file 
+        history = []
+        returns_window = []
+
+        episode = 0
+        ep_ret = 0.0
+        ep_len = 0
+
+        # accumulo metriche PPO durante l’episodio
+        ep_actor_losses = []
+        ep_critic_losses = []
+        ep_entropies = []
+        ep_total_losses = []
         
 
         env = make_env(env_id=self.env_id, seed=self.seed)
@@ -178,7 +194,8 @@ class PPO_Agent:
 
         threshold = total_steps/n_checkpoints 
         c_threshold = threshold
-        
+       
+
         tqdm.write("Starting Discrete PPO training...")
         pbar = trange(1, total_steps + 1, desc="PPO training",leave=True)       
         for step in pbar:
@@ -192,6 +209,10 @@ class PPO_Agent:
                 next_obs, reward, term, trunc, _ = env.step(action)
                 done = term or trunc
 
+                ep_ret += float(reward)
+                ep_len += 1
+
+
                 self.buffer.add(obs, action, reward, done, value, logp)
 
                 obs = next_obs
@@ -201,6 +222,39 @@ class PPO_Agent:
                 pbar.update(1)
 
                 if done:
+                    episode += 1
+                    returns_window.append(ep_ret)
+                    avg100 = sum(returns_window[-100:]) / min(len(returns_window), 100)
+
+                    # medie metriche PPO dell’episodio
+                    actor_mean  = sum(ep_actor_losses)/len(ep_actor_losses) if ep_actor_losses else None
+                    critic_mean = sum(ep_critic_losses)/len(ep_critic_losses) if ep_critic_losses else None
+                    ent_mean    = sum(ep_entropies)/len(ep_entropies) if ep_entropies else None
+                    loss_mean   = sum(ep_total_losses)/len(ep_total_losses) if ep_total_losses else None
+
+                    history.append({
+                        "env_step": int(g_step),
+                        "episode": int(episode),
+                        "ep_len": int(ep_len),
+                        "episodic_return": float(ep_ret),
+                        "avg_return_100": float(avg100),
+
+                        # PPO-specific
+                        "actor_loss_ep_mean": actor_mean,
+                        "critic_loss_ep_mean": critic_mean,
+                        "entropy_ep_mean": ent_mean,
+                        "total_loss_ep_mean": loss_mean,
+                        "updates_in_episode": int(len(ep_actor_losses)),
+                    })
+
+                    # reset episodio
+                    ep_ret = 0.0
+                    ep_len = 0
+                    ep_actor_losses.clear()
+                    ep_critic_losses.clear()
+                    ep_entropies.clear()
+                    ep_total_losses.clear()
+
                     obs, _ = env.reset()
 
                 if step >= total_steps:
@@ -214,6 +268,13 @@ class PPO_Agent:
             # update
             self.net.train()
             logs =self.update()
+
+            if logs is not None:
+                ep_actor_losses.append(float(logs["actor_loss"]))
+                ep_critic_losses.append(float(logs["critic_loss"]))
+                ep_entropies.append(float(logs["entropy"]))
+                ep_total_losses.append(float(logs["loss"]))
+
 
             if g_step % log_every == 0 and logs is not None:
                 tqdm.write(
@@ -238,6 +299,7 @@ class PPO_Agent:
 
         env.close()
         self.save(final_path)
+        save_training_csv(history, final_path_csv)
         print(f"Saved final PPO: {final_path}")
         return final_path
     

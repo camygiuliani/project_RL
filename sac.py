@@ -8,7 +8,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm, trange
-from utils import load_config
+from utils import load_config,save_training_csv
 from wrappers import make_env
 
 
@@ -305,12 +305,24 @@ class SACDiscrete_Agent:
         os.makedirs(outdir_runs, exist_ok=True)
         # final path for saving the final model
         final_path = os.path.join(outdir_runs, f"sac_{total_steps}.pt")
+        ## path for csv file
+        final_path_csv = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
 
         obs, _ = env.reset(seed=0)
-        ep_ret = 0.0
+      
         next_eval = eval_every
 
         os.makedirs(f"checkpoints/sac", exist_ok=True)
+
+        history = []
+        returns_window = []
+        episode = 0
+        ep_ret = 0.0
+        ep_len=0
+        ep_q1_losses=[]
+        ep_q2_losses=[]
+        ep_actor_losses=[]
+        ep_alphas=[]
 
         tqdm.write("Starting Discrete SAC training...")
         pbar = trange(1, total_steps + 1, desc="SAC training",leave=True)
@@ -322,19 +334,52 @@ class SACDiscrete_Agent:
             next_obs, r, term, trunc, _ = env.step(action)
             done = term or trunc
             ep_ret += float(r)
+            ep_len += 1
 
             self.replay.add(obs, action, r, next_obs, done)
             self.total_steps += 1
             obs = next_obs
 
             if done:
+                episode += 1
+                returns_window.append(ep_ret)
+                avg100 = sum(returns_window[-100:]) / min(len(returns_window), 100)
+
+                # mean of losses per episode
+                q1_mean = sum(ep_q1_losses)/len(ep_q1_losses) if ep_q1_losses else None
+                q2_mean = sum(ep_q2_losses)/len(ep_q2_losses) if ep_q2_losses else None
+                actor_mean = sum(ep_actor_losses)/len(ep_actor_losses) if ep_actor_losses else None
+                alpha_mean = sum(ep_alphas)/len(ep_alphas) if ep_alphas else None
+
+                history.append({
+                    "env_step": int(step),
+                    "episode": int(episode),
+                    "ep_len": int(ep_len),
+                    "episodic_return": float(ep_ret),
+                    "avg_return_100": float(avg100),
+                    "q1_loss_ep_mean": q1_mean,
+                    "q2_loss_ep_mean": q2_mean,
+                    "actor_loss_ep_mean": actor_mean,
+                    "alpha_ep_mean": alpha_mean,
+                    "updates_in_episode": int(len(ep_q1_losses)),
+                })
                 obs, _ = env.reset()
                 ep_ret = 0.0
+                ep_len = 0
+                ep_q1_losses.clear()
+                ep_q2_losses.clear()
+                ep_actor_losses.clear()
+                ep_alphas.clear()
 
             # updates (off-policy)
             if self.total_steps > self.cfg["sac"]["start_steps"] and self.can_update():
                 logs=self.update_many(self.cfg["sac"]["updates_per_step"])
-                    # stampa "umana" ogni tot step
+                if logs is not None:
+                    ep_q1_losses.append(float(logs["q1_loss"]))
+                    ep_q2_losses.append(float(logs["q2_loss"]))
+                    ep_actor_losses.append(float(logs["actor_loss"]))
+                    ep_alphas.append(float(logs["alpha"]))
+
             
             if step % log_every == 0:
                 if logs is not None:
@@ -365,6 +410,9 @@ class SACDiscrete_Agent:
                 next_eval += eval_every
 
         env.close()
+        
+        #csv saving
+        save_training_csv(history,final_path_csv)
         self.save(final_path)
         print(f"[SAC] saved final checkpoint: {final_path}")
 

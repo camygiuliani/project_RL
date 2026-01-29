@@ -1,3 +1,4 @@
+import csv
 import numpy as np
 from tqdm import tqdm
 import os
@@ -9,7 +10,7 @@ import torch.nn as nn
 from datetime import datetime
 
 from wrappers import make_env
-from utils import load_config
+from utils import load_config, save_training_csv
 
 
 
@@ -137,6 +138,12 @@ class DDQN_Agent:
 
         os.makedirs(f"checkpoints/ddqn", exist_ok=True)
 
+        ## for file csv
+        history = []
+        returns_window = []   # per avg_return_100
+        final_path_cvs = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
+
+
         pbar = tqdm(range(1, total_steps + 1))
         for step in pbar:
             logs = None
@@ -156,7 +163,19 @@ class DDQN_Agent:
             ep_ret += reward
             ep_len += 1
 
+            ## when episode ends
             if done:
+                returns_window.append(ep_ret)
+                avg100 = sum(returns_window[-100:]) / min(len(returns_window), 100)
+
+                history.append({
+                    "env_step": step,
+                    "episode": episode,
+                    "episodic_return": float(ep_ret),
+                    "avg_return_100": float(avg100),
+                    "epsilon": float(eps),
+                    "td_loss": float(logs) if logs is not None else None,
+                })
                 episode += 1
                 obs, _ = env.reset()
                 pbar.set_description(f"ep={episode} R={ep_ret:.1f} len={ep_len} eps={eps:.2f} rb={len(rb)}")
@@ -199,9 +218,13 @@ class DDQN_Agent:
 
                 c_threshold+=threshold
         env.close()
+       
+        #saving training metrics to csv
+        save_training_csv(history, final_path_cvs)
 
         #final save
         self.save(final_path)
+        print(f"[DDQN] saved final checkpoint: {final_path}")
 
     @torch.no_grad()
     def eval(self, seed, n_episodes: int = 10, path: str = None, render_mode=None):    
