@@ -173,10 +173,13 @@ class DDQN_Agent:
                 self.sync_target()
 
             if step % log_every == 0 and logs is not None:
-                tqdm.write(
+                """ tqdm.write(
                     f"[step {step}] q1={logs['q1_loss']:.2f} "
                     f"q2={logs['q2_loss']:.2f} actor={logs['actor_loss']:.2f}"
-                )
+                ) """
+                tqdm.write(
+                    f"[step {step}] td_loss={logs:.4f} eps={eps:.2f}"
+                    )
             elif logs is None:
                 if step % log_every == 0:
                     tqdm.write(f"[step {step}] no update")
