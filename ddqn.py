@@ -114,7 +114,7 @@ class DDQN_Agent:
                save_dir: str = "runs/ddqn"):
         
         seed = 0  
-        threshold = total_steps/n_checkpoints 
+        threshold = total_steps//n_checkpoints if n_checkpoints>0 else 0 
         c_threshold = threshold
 
         # creating directory with date for saving runs
@@ -174,7 +174,7 @@ class DDQN_Agent:
                     "episodic_return": float(ep_ret),
                     "avg_return_100": float(avg100),
                     "epsilon": float(eps),
-                    "td_loss": float(logs) if logs is not None else None,
+                    "td_loss": None
                 })
                 episode += 1
                 obs, _ = env.reset()
@@ -187,6 +187,9 @@ class DDQN_Agent:
                 batch = rb.sample(batch_size)
                 logs = self.update(batch)
 
+            if done:
+                history[-1]["td_loss"] = float(logs) if logs is not None else "None"
+            
             # target update
             if step % target_update == 0:
                 self.sync_target()
@@ -197,14 +200,18 @@ class DDQN_Agent:
                     f"q2={logs['q2_loss']:.2f} actor={logs['actor_loss']:.2f}"
                 ) """
                 tqdm.write(
-                    f"[step {step}] td_loss={logs:.4f} eps={eps:.2f}"
+                        f"[Step {step}] "
+                        f"Rew={returns_window[-1] if returns_window else 0:.0f} "
+                        f"Avg100={avg100:.1f} "
+                        f"Loss={logs:.4f} "
+                        f"Eps={eps:.2f} "
                     )
             elif logs is None:
                 if step % log_every == 0:
                     tqdm.write(f"[step {step}] no update")
                     
             # checkpoint
-            if step > c_threshold:
+            if step > c_threshold and n_checkpoints>0:
 
                 ckpt_dir= self.cfg["ddqn"]["checkpoints_dir"]
                    

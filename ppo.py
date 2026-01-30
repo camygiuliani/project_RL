@@ -165,7 +165,6 @@ class PPO_Agent:
         final_path = os.path.join(outdir_runs, f"ppo_{total_steps}.pt")
         final_path_csv = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
 
-        # 2. Metrics Setup
         history = []
         returns_window = []
         episode = 0
@@ -177,18 +176,12 @@ class PPO_Agent:
         ep_entropies = []
         ep_total_losses = []
 
-        # 3. Env Setup
         env = make_env(env_id=self.env_id, seed=self.seed)
         obs, _ = env.reset(seed=self.seed)
-
-        # 4. Calculate Updates required
-        #    If total_steps=1M and rollout_len=2048, we need ~488 updates.
-        num_updates = total_steps // self.rollout_len
         
         g_step = 0
         
-        # Checkpoint logic
-        threshold = total_steps // n_checkpoints 
+        threshold = total_steps // n_checkpoints if n_checkpoints > 0 else 0
         c_threshold = threshold
         l_threshold = log_every
 
@@ -249,6 +242,10 @@ class PPO_Agent:
 
                 self.net.train()
                 logs = self.update() # PPO update happens here
+                ep_actor_losses.append(logs["actor_loss"])
+                ep_critic_losses.append(logs["critic_loss"])
+                ep_entropies.append(logs["entropy"])
+                ep_total_losses.append(logs["loss"])
 
                 if g_step > l_threshold:
                     if logs is not None:
@@ -262,7 +259,7 @@ class PPO_Agent:
                         )
                     l_threshold += log_every
 
-                if g_step > c_threshold:
+                if g_step > c_threshold and n_checkpoints > 0:
                     time = datetime.now().strftime("%H_%M_%S")
                     outdir_ckpt = os.path.join(self.cfg["ppo"]["checkpoints_dir"], date)
                     os.makedirs(outdir_ckpt, exist_ok=True)
@@ -288,12 +285,11 @@ class PPO_Agent:
         if path is not None:
             print(f"Loading checkpoint from: {path}")
             if not os.path.exists(path):
-                print(f"Submitted checkpoint not found: {path}")
+                print(f"Checkpoint not found: {path}")
                 return -1
             self.load(path)
         else:
-            print("No checkpoint provided or path is None.")
-            return -1
+            print("Using current model weights for evaluation.")
 
         env = make_env(env_id=self.env_id, seed=seed, render_mode=render_mode)
         returns = []
