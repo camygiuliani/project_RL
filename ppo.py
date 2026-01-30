@@ -35,9 +35,9 @@ class ActorCriticCNN(nn.Module):
 
 
 class PPO_Agent:
-    def __init__(self, obs_shape, n_actions, env_id="ALE/SpaceInvaders-v5", seed=0, device=None, lr=2.5e-4, gamma=0.99, gae_lambda=0.95, clip_eps=0.1,
-        ent_coef=0.01, vf_coef=0.5, max_grad_norm=0.5, rollout_len=128, n_epochs=4, batch_size=256,
-        save_dir="runs/ppo",eval_every=100_000,eval_episodes=10):
+    def __init__(self, obs_shape, n_actions, env_id="ALE/SpaceInvaders-v5", seed=0, device=None, lr=2.5e-4, gamma=0.99, gae_lambda=0.95, clip_eps=0.1, 
+        ent_coef=0.01, vf_coef=0.5, max_grad_norm=0.5, rollout_len=128, update_epochs=4, batch_size=256,
+        save_dir="runs/ppo",eval_episodes=10):
         
         self.env_id = env_id
         self.seed = seed
@@ -55,11 +55,9 @@ class PPO_Agent:
         self.max_grad_norm = max_grad_norm
 
         self.rollout_len = rollout_len
-        self.n_epochs = n_epochs
+        self.update_epochs = update_epochs
         self.batch_size = batch_size
-
         self.save_dir = save_dir
-        self.eval_every = eval_every
         self.eval_episodes = eval_episodes
 
         os.makedirs(self.save_dir, exist_ok=True)
@@ -127,7 +125,7 @@ class PPO_Agent:
         N = obs_t.shape[0]
         idx = np.arange(N)
 
-        for _ in range(self.n_epochs):
+        for _ in range(self.update_epochs):
             np.random.shuffle(idx)
             for start in range(0, N, self.batch_size):
                 mb = idx[start:start + self.batch_size]
@@ -159,149 +157,132 @@ class PPO_Agent:
                 }
 
     def train(self, total_steps=1_000_000, save_dir: str = None, n_checkpoints: int = 10, log_every: int = 1_000):
-
-        # creating directory with date for saving runs
+        # 1. Setup Directories
         date = datetime.now().strftime("%Y_%m_%d")
-        outdir_runs = os.path.join(self.save_dir, date)
+        outdir_runs = os.path.join(save_dir, date)
         os.makedirs(outdir_runs, exist_ok=True)
-        # final path for saving the final model
-        final_path = os.path.join(outdir_runs, f"ppo_{total_steps}.pt")
-        ## path for csv file
-        final_path_csv = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
         
+        final_path = os.path.join(outdir_runs, f"ppo_{total_steps}.pt")
+        final_path_csv = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
 
-        # for csv file 
+        # 2. Metrics Setup
         history = []
         returns_window = []
-
         episode = 0
         ep_ret = 0.0
         ep_len = 0
-
-        # accumulo metriche PPO durante l’episodio
+        
         ep_actor_losses = []
         ep_critic_losses = []
         ep_entropies = []
         ep_total_losses = []
-        
 
+        # 3. Env Setup
         env = make_env(env_id=self.env_id, seed=self.seed)
         obs, _ = env.reset(seed=self.seed)
 
-        step = 0
+        # 4. Calculate Updates required
+        #    If total_steps=1M and rollout_len=2048, we need ~488 updates.
+        num_updates = total_steps // self.rollout_len
+        
         g_step = 0
-        next_eval = self.eval_every
-
-        threshold = total_steps/n_checkpoints 
+        
+        # Checkpoint logic
+        threshold = total_steps // n_checkpoints 
         c_threshold = threshold
-       
+        l_threshold = log_every
 
         tqdm.write("Starting Discrete PPO training...")
-        pbar = trange(1, total_steps + 1, desc="PPO training",leave=True)       
-        for step in pbar:
-            self.buffer.reset()
+        
+        with tqdm(total=total_steps, desc="PPO Training", leave=True) as pbar:
+            while g_step < total_steps:
+                self.buffer.reset()
+                for _ in range(self.rollout_len):
+                    action, logp, value = self.act(obs)
+                    next_obs, reward, term, trunc, _ = env.step(action)
+                    done = term or trunc
 
-            # collect rollout
-            for _ in range(self.rollout_len):
-                logs = None
-                action, logp, value = self.act(obs)
+                    ep_ret += float(reward)
+                    ep_len += 1
 
-                next_obs, reward, term, trunc, _ = env.step(action)
-                done = term or trunc
+                    self.buffer.add(obs, action, reward, done, value, logp)
 
-                ep_ret += float(reward)
-                ep_len += 1
+                    obs = next_obs
+                    
+                    if done:
+                        episode += 1
+                        returns_window.append(ep_ret)
+                        avg100 = sum(returns_window[-100:]) / min(len(returns_window), 100)
 
+                        # Calculate episode means
+                        actor_mean  = sum(ep_actor_losses)/len(ep_actor_losses) if ep_actor_losses else None
+                        critic_mean = sum(ep_critic_losses)/len(ep_critic_losses) if ep_critic_losses else None
+                        ent_mean    = sum(ep_entropies)/len(ep_entropies) if ep_entropies else None
+                        loss_mean   = sum(ep_total_losses)/len(ep_total_losses) if ep_total_losses else None
 
-                self.buffer.add(obs, action, reward, done, value, logp)
+                        history.append({
+                            "env_step": int(g_step),
+                            "episode": int(episode),
+                            "ep_len": int(ep_len),
+                            "episodic_return": float(ep_ret),
+                            "avg_return_100": float(avg100),
+                            "actor_loss_ep_mean": actor_mean,
+                            "critic_loss_ep_mean": critic_mean,
+                            "entropy_ep_mean": ent_mean,
+                            "total_loss_ep_mean": loss_mean,
+                            "updates_in_episode": int(len(ep_actor_losses)),
+                        })
 
-                obs = next_obs
+                        # Reset episode vars
+                        ep_ret = 0.0
+                        ep_len = 0
+                        ep_actor_losses.clear()
+                        ep_critic_losses.clear()
+                        ep_entropies.clear()
+                        ep_total_losses.clear()
+                        obs, _ = env.reset()
+
+            
+                last_v = self.value(obs)
+                self.buffer.full = True
+                self.buffer.compute_returns_and_advantages(last_value=last_v)
+
+                self.net.train()
+                logs = self.update() # PPO update happens here
+
+                if g_step > l_threshold:
+                    if logs is not None:
+                        tqdm.write(
+                            f"[Step {g_step}] "
+                            f"Rew={returns_window[-1] if returns_window else 0:.0f} "
+                            f"Loss={logs['loss']:.2f} "
+                            f"Actor={logs['actor_loss']:.2f} "
+                            f"Critic={logs['critic_loss']:.2f} "
+                            f"Ent={logs['entropy']:.2f}"
+                        )
+                    l_threshold += log_every
+
+                if g_step > c_threshold:
+                    time = datetime.now().strftime("%H_%M_%S")
+                    outdir_ckpt = os.path.join(self.cfg["ppo"]["checkpoints_dir"], date)
+                    os.makedirs(outdir_ckpt, exist_ok=True)
+                    ckpt_path = os.path.join(outdir_ckpt, f"ppo_step_{g_step}_{time}.pt")
+                    self.save(ckpt_path)
+                    c_threshold += threshold
+                    tqdm.write(f"Checkpoint saved at step {g_step}")
+
                 g_step += 1
-                
-                # 3. Update the progress bar by 1 step
                 pbar.update(1)
 
-                if done:
-                    episode += 1
-                    returns_window.append(ep_ret)
-                    avg100 = sum(returns_window[-100:]) / min(len(returns_window), 100)
-
-                    # medie metriche PPO dell’episodio
-                    actor_mean  = sum(ep_actor_losses)/len(ep_actor_losses) if ep_actor_losses else None
-                    critic_mean = sum(ep_critic_losses)/len(ep_critic_losses) if ep_critic_losses else None
-                    ent_mean    = sum(ep_entropies)/len(ep_entropies) if ep_entropies else None
-                    loss_mean   = sum(ep_total_losses)/len(ep_total_losses) if ep_total_losses else None
-
-                    history.append({
-                        "env_step": int(g_step),
-                        "episode": int(episode),
-                        "ep_len": int(ep_len),
-                        "episodic_return": float(ep_ret),
-                        "avg_return_100": float(avg100),
-
-                        # PPO-specific
-                        "actor_loss_ep_mean": actor_mean,
-                        "critic_loss_ep_mean": critic_mean,
-                        "entropy_ep_mean": ent_mean,
-                        "total_loss_ep_mean": loss_mean,
-                        "updates_in_episode": int(len(ep_actor_losses)),
-                    })
-
-                    # reset episodio
-                    ep_ret = 0.0
-                    ep_len = 0
-                    ep_actor_losses.clear()
-                    ep_critic_losses.clear()
-                    ep_entropies.clear()
-                    ep_total_losses.clear()
-
-                    obs, _ = env.reset()
-
-                if step >= total_steps:
-                    break
-
-            # bootstrap value for last state
-            last_v = self.value(obs)
-            self.buffer.full = True
-            self.buffer.compute_returns_and_advantages(last_value=last_v)
-
-            # update
-            self.net.train()
-            logs =self.update()
-
-            if logs is not None:
-                ep_actor_losses.append(float(logs["actor_loss"]))
-                ep_critic_losses.append(float(logs["critic_loss"]))
-                ep_entropies.append(float(logs["entropy"]))
-                ep_total_losses.append(float(logs["loss"]))
 
 
-            if g_step % log_every == 0 and logs is not None:
-                tqdm.write(
-                    f"[step {step}] loss={logs['loss']:.2f} "
-                    f"critic={logs['critic_loss']:.2f} actor={logs['actor_loss']:.2f} entropy={logs['entropy']:.2f}"
-                )
-                    
-            # checkpoint ( as in ddqn)
-            if step > c_threshold:
-                
-                ckpt_dir= self.cfg["ppo"]["checkpoints_dir"]
-                
-                date = datetime.now().strftime("%Y_%m_%d")
-                time = datetime.now().strftime("%H_%M_%S")
-                outdir_ckpt = os.path.join(ckpt_dir, date)
-                os.makedirs(outdir_ckpt, exist_ok=True)
-
-                ckpt_path = os.path.join(outdir_ckpt, f"ppo_step_{step}_{time}.pt")
-                self.save(ckpt_path)
-                
-                c_threshold+=threshold
-
+        tqdm.write("Training finished. Saving final models...")
         env.close()
         self.save(final_path)
         save_training_csv(history, final_path_csv)
         print(f"Saved final PPO: {final_path}")
         return final_path
+    
     
     def eval(self, seed=0, n_episodes: int = 10, path: str = None, render_mode=None):    
         if path is not None:

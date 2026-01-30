@@ -4,9 +4,9 @@ env:
   frame_stack: 4
 
 training:
-  total_steps: 1000000
-  eval_every: 100000
-  log_every: 10000
+  total_steps: 100000
+  eval_every: 10000
+  log_every: 1000
   device: cuda
 
 ddqn:
@@ -14,17 +14,17 @@ ddqn:
   gamma: 0.99
   lr: 0.00001
   train_f: 4
-  l_start: 50000
+  l_start: 10000
   double_dqn: true
   batch_size: 32
   buffer_size: 100000
   target_update: 10000
   epsilon_start: 1.0
   epsilon_end: 0.01
-  epsilon_decay: 1000000
-  n_checkpoints: 5
-  log_every: 1000
-  total_steps: 1000000
+  epsilon_decay: 100000
+  n_checkpoints: 0 #5
+  log_every: 5000
+  total_steps: 100000
   save_dir: runs/ddqn
   checkpoints_dir: checkpoints/ddqn
   path_best_model: runs/ddqn/2026_01_25/ddqn_1000000.pt
@@ -35,13 +35,12 @@ ppo:
   clip_eps: 0.2
   gae_lambda: 0.95
   rollout_steps: 128
-  epochs: 4
-  batch_size: 64
+  update_epochs: 4
+  batch_size: 256
   seed: 0
-  eval_every: 100
-  log_every: 1000
-  total_steps: 10000
-  n_checkpoints: 5
+  log_every: 10
+  total_steps: 100
+  n_checkpoints: 0 #5
   save_dir: runs/ppo
   checkpoints_dir: checkpoints/ppo
   path_best_model: runs/ppo/2026_01_25/ppo_1000000.pt

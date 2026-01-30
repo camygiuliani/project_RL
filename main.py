@@ -71,10 +71,10 @@ def main():
                 env_id=env_id,
                 seed=cfg["ppo"]["seed"],
                 rollout_len=cfg["ppo"]["rollout_steps"],
-                n_epochs=cfg["ppo"]["epochs"],
+                update_epochs=cfg["ppo"]["update_epochs"],
                 batch_size=cfg["ppo"]["batch_size"],
+                device=device,
                 save_dir=cfg["ppo"]["save_dir"],
-                eval_every=cfg["ppo"]["eval_every"],
             )
             info="PPO"   
            
@@ -131,8 +131,6 @@ def main():
                 eval_every=cfg['sac']['eval_every'],
                 save_dir=cfg['sac']['save_dir'])
               
-        else:
-            raise ValueError("Choose one algorithm for training: --ddqn or --ppo or --sac")
         
         end_train_time = time.time()
         train_duration = end_train_time - start_train_time
