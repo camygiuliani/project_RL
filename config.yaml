@@ -92,5 +92,5 @@ sarfa:
 eval:
   seed: 42
   n_episodes: 10
-  n_episodes_render: 1
+  n_episodes_render: 3
  
