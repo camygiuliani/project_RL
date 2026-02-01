@@ -1,3 +1,4 @@
+from html import parser
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -362,6 +363,24 @@ def sac_policy_logits(agent, obs_batch):
     logits = agent.actor(x)  # (N, A)
     return logits
 
+def _save_side_by_side(image_paths, out_path):
+    imgs = []
+    for p in image_paths:
+        im = cv2.imread(p)  # BGR
+        if im is None:
+            raise RuntimeError(f"Could not read image: {p}")
+        imgs.append(im)
+
+    # resize all to same height
+    h = min(im.shape[0] for im in imgs)
+    resized = []
+    for im in imgs:
+        w = int(im.shape[1] * (h / im.shape[0]))
+        resized.append(cv2.resize(im, (w, h), interpolation=cv2.INTER_AREA))
+
+    combo = cv2.hconcat(resized)
+    cv2.imwrite(out_path, combo)
+
 
 def main():
 
@@ -373,7 +392,7 @@ def main():
     parser.add_argument("--stride", type=int, default=cfg["sarfa"]["stride"])
     parser.add_argument("--outdir", type=str, default=cfg["sarfa"]["outdir"])
     parser.add_argument("--seed", type=int, default=cfg["sarfa"]["seed"])
-    parser.add_argument("--algo", type=str, default="ddqn", choices=["ddqn", "ppo","sac"])
+    parser.add_argument("--algo", type=str, default="ddqn", choices=["ddqn", "ppo", "sac", "all"])
     parser.add_argument("--ddqn_model", type=str, default=cfg["ddqn"]["path_best_model"])
     parser.add_argument("--ppo_model", type=str, default=cfg["ppo"]["path_best_model"])
     parser.add_argument("--sac_model", type=str, default=cfg["sac"]["path_best_model"])
@@ -430,120 +449,131 @@ def main():
         print("[WARNING] observation is normalized (0-1). Multiplying by 255.")
         obs = (obs * 255).astype(np.uint8)
 
-    if args.algo == "ddqn":
-        print("Using DDQN agent for SARFA...")
-        agent = DDQN_Agent(env, obs_shape[2], n_actions, device, double_dqn=True)   
-        agent.load(args.ddqn_model)
-        
-        heat, action = sarfa_heatmap(
-            agent, obs,
-            patch=args.patch, 
-            stride=args.stride,
-            fill_mode="mean", 
-            batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
-            use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"], 
-            clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
-            use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"], 
-            flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
-        )
-
-    elif args.algo == "ppo":
-        print("Using PPO agent for SARFA...")
-        ckpt = torch.load(args.ppo_model, map_location=device)
-        actor_critic = ActorCriticCNN(in_channels=cfg["sarfa"]["ppo"]["in_channels"], 
-                                      n_actions=n_actions)
-        actor_critic = actor_critic.to(device)
-        actor_critic.load_state_dict(ckpt["net"])
-        actor_critic.eval()
-        heat, action = sarfa_heatmap_ppo(actor_critic,
-                                          device,
-                                          obs,
-                                          patch=args.patch,
-                                          stride=args.stride,
-                                          fill_mode=cfg["sarfa"]["ppo"]["fill_mode"], 
-                                          batch_size=cfg["sarfa"]["ppo"]["batch_size"])
-    
-    else:  # sac
-        print("Using SAC agent for SARFA...")
-        ckpt = torch.load(args.sac_model, map_location=device)
-
-        agent = SACDiscrete_Agent(  obs_shape=obs.shape,          # (84,84,4)
-                                    n_actions=n_actions,
-                                    device=device,
-                                    env_id=cfg["env"]["id"]
-                                )
-
-        agent.load(args.sac_model)
-
-        heat, action = sarfa_heatmap_policy_logp(
-            lambda x: sac_policy_logits(agent, x),
-            device,
-            obs,
-            patch=args.patch,
-            stride=args.stride
-        )
-       
-
-
-
-    # DEBUG: Controlliamo se la heatmap è vuota
-    #print(f"[DEBUG] Heatmap Max Value: {heat.max():.6f}")
-    #print(f"[DEBUG] Heatmap Mean Value: {heat.mean():.6f}")
-
-    if heat.max() == 0:
-        print("[ERROR] Heatmap is all zeros!")
-        print(" -> Try reducing the patch size or check if the model always predicts the same action.")
-
-    # robust visualization with blurring and normalization
-    heat_vis = blur_heatmap(heat, k=7)
-    
-    # removing aggressive thresholding if values are too low
-    # and using a min-max standard normalization
-    if heat_vis.max() > 0:
-        heat_vis = (heat_vis - heat_vis.min()) / (heat_vis.max() - heat_vis.min() + 1e-8)
-        
-        
-        #applying a softer threshold: we show everything above mean
-        thr = np.mean(heat_vis) 
-        heat_vis[heat_vis < thr] = 0.0
-    
-    # background image loading....
-    if hasattr(rgb_bg, 'detach'): rgb_bg = rgb_bg.detach().cpu().numpy()
-    rgb_bg = np.array(rgb_bg)
-    if len(rgb_bg.shape) == 2:
-        rgb_bg = np.stack([rgb_bg]*3, axis=-1)
-
-    # Resize Heatmap
-    if rgb_bg.shape[:2] != heat_vis.shape:
-        heat_vis = cv2.resize(heat_vis, (rgb_bg.shape[1], rgb_bg.shape[0]), interpolation=cv2.INTER_NEAREST)
-
-    # Overlay
-    cmap = plt.get_cmap('jet') # O 'hot' per vedere meglio il rosso
-    overlay = cmap(heat_vis)
-    
-    # adaptive transparency the more is hot, the more is opaque (up to 0.7)
-    overlay[..., 3] = heat_vis * 0.7 
-
-    plt.figure(figsize=(10, 10))
-    plt.imshow(rgb_bg)
-    plt.imshow(overlay)
-    
-    plt.axis("off")
-    plt.title(f"SARFA (Action: {action}) - {args.algo} - MaxHeat: {heat.max():.4f}")
-    
+    algos_to_run = ["ddqn", "ppo", "sac"] if args.algo == "all" else [args.algo]
     date = datetime.now().strftime("%Y_%m_%d")
     time = datetime.now().strftime("%H_%M_%S")
-
     outdir = os.path.join(args.outdir, date)
     os.makedirs(outdir, exist_ok=True)
-
-    png_path = os.path.join(outdir, f"sarfa_{args.algo}_{time}.png")
-
     
-    plt.savefig(png_path, dpi=200, bbox_inches="tight", pad_inches=0)
-    plt.close()
+    saved_paths = []
+
+    for algo in algos_to_run:
+
+        if algo == "ddqn":
+            print("Using DDQN agent for SARFA...")
+            agent = DDQN_Agent(env, obs_shape[2], n_actions, device, double_dqn=True)   
+            agent.load(args.ddqn_model)
+            
+            heat, action = sarfa_heatmap(
+                agent, obs,
+                patch=args.patch, 
+                stride=args.stride,
+                fill_mode="mean", 
+                batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
+                use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"], 
+                clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
+                use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"], 
+                flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
+            )
+
+        elif algo == "ppo":
+            print("Using PPO agent for SARFA...")
+            ckpt = torch.load(args.ppo_model, map_location=device)
+            actor_critic = ActorCriticCNN(in_channels=cfg["sarfa"]["ppo"]["in_channels"], 
+                                        n_actions=n_actions)
+            actor_critic = actor_critic.to(device)
+            actor_critic.load_state_dict(ckpt["net"])
+            actor_critic.eval()
+            heat, action = sarfa_heatmap_ppo(actor_critic,
+                                            device,
+                                            obs,
+                                            patch=args.patch,
+                                            stride=args.stride,
+                                            fill_mode=cfg["sarfa"]["ppo"]["fill_mode"], 
+                                            batch_size=cfg["sarfa"]["ppo"]["batch_size"])
+        
+        else:  # sac
+            print("Using SAC agent for SARFA...")
+            ckpt = torch.load(args.sac_model, map_location=device)
+
+            agent = SACDiscrete_Agent(  obs_shape=obs.shape,          # (84,84,4)
+                                        n_actions=n_actions,
+                                        device=device,
+                                        env_id=cfg["env"]["id"]
+                                    )
+
+            agent.load(args.sac_model)
+
+            heat, action = sarfa_heatmap_policy_logp(
+                lambda x: sac_policy_logits(agent, x),
+                device,
+                obs,
+                patch=args.patch,
+                stride=args.stride
+            )
+        
+
+
+
+        # DEBUG: Controlliamo se la heatmap è vuota
+        #print(f"[DEBUG] Heatmap Max Value: {heat.max():.6f}")
+        #print(f"[DEBUG] Heatmap Mean Value: {heat.mean():.6f}")
+
+        if heat.max() == 0:
+            print("[ERROR] Heatmap is all zeros!")
+            print(" -> Try reducing the patch size or check if the model always predicts the same action.")
+
+        # robust visualization with blurring and normalization
+        heat_vis = blur_heatmap(heat, k=7)
+        
+        # removing aggressive thresholding if values are too low
+        # and using a min-max standard normalization
+        if heat_vis.max() > 0:
+            heat_vis = (heat_vis - heat_vis.min()) / (heat_vis.max() - heat_vis.min() + 1e-8)
+            
+            
+            #applying a softer threshold: we show everything above mean
+            thr = np.mean(heat_vis) 
+            heat_vis[heat_vis < thr] = 0.0
+        
+        # background image loading....
+        if hasattr(rgb_bg, 'detach'): rgb_bg = rgb_bg.detach().cpu().numpy()
+        rgb_bg = np.array(rgb_bg)
+        if len(rgb_bg.shape) == 2:
+            rgb_bg = np.stack([rgb_bg]*3, axis=-1)
+
+        # Resize Heatmap
+        if rgb_bg.shape[:2] != heat_vis.shape:
+            heat_vis = cv2.resize(heat_vis, (rgb_bg.shape[1], rgb_bg.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+        # Overlay
+        cmap = plt.get_cmap('jet')
+        overlay = cmap(heat_vis)
+        
+        # adaptive transparency the more is hot, the more is opaque (up to 0.7)
+        overlay[..., 3] = heat_vis * 0.7 
+
+        plt.figure(figsize=(10, 10))
+        plt.imshow(rgb_bg)
+        plt.imshow(overlay)
+        
+        plt.axis("off")
+        plt.title(f"SARFA (Action: {action}) - {algo} - MaxHeat: {heat.max():.4f}")
+   
+
+        png_path = os.path.join(outdir, f"sarfa_{algo}_{time}.png")
+        plt.savefig(png_path, dpi=200, bbox_inches="tight", pad_inches=0)
+        plt.close()
+        print(f"[SARFA] Saved: {png_path}")
+        saved_paths.append(png_path)
+
+    if args.algo == "all" and len(saved_paths) == 3:
+        combo_path = os.path.join(outdir, f"sarfa_ALL_{time}.png")
+        _save_side_by_side(saved_paths, combo_path)
+        print(f"[SARFA] Saved side-by-side: {combo_path}")
+        
     env.close()
-    print(f"[SARFA] Saved: {png_path}")
+    
 
 if __name__ == "__main__":
     main()

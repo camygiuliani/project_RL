@@ -1,11 +1,6 @@
 
 
 
-python eval_dqn.py --model checkpoints/dqn_latest.pt
-
-python sarfa.py --model checkpoints/dqn_latest.pt
-
-
 ====16 Gennaio========
 --vedere se plot sarfa è cambiato... se è più simile al paper? [OK]
 -- mandare mail [in proggress]
@@ -22,16 +17,22 @@ Magari potreste partire con PPO e SAC, ed eventualmente estendere
 l’analisi a DDQN se c’è tempo, visto che è comunque off-policy, ma è value-based.
 
 =========== 25 gen ===========
--sistma print durante training
+-sistma print durante training  [OK]
 - controllare paper
 -grafici
 
 =========== 27 gen ===========
 
-riorganizzare gli argomenti delle funzioni init e train in ppo e sac, aggiungendo la directory per i checkpoint
+riorganizzare gli argomenti delle funzioni init e train in ppo e sac, 
+aggiungendo la directory per i checkpoint [OK]
+
 - next_eval meccanismo pure sugli altri oltre sac
+-render per eval[OK]
+
+===== 31 Gen==============
+- problema csv train di DDQN
+- azioni sarfa?
 
 
--render per eval?
 
 
