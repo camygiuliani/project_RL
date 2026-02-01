@@ -34,11 +34,12 @@ pip install -r requirements.txt
 ```
 
 ### 3a. Additional libraries
-Needed to fix alsa sound
+Needed to fix  warning alsa sound
 ```bash
 sudo apt install -y alsa-utils libasound2t64
 sudo apt install -y pulseaudio
 ```
+Disclaimer: audio may not work even though you install these libraries above.
 
 
 ### 4. Configuration
