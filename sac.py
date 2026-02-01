@@ -114,15 +114,13 @@ class SACDiscrete_Agent:
 
     def __init__(self, obs_shape, n_actions: int, device: torch.device, 
                     env_id="ALE/SpaceInvaders-v5",
-                    gamma: float = 0.99,
-                    tau: float = 0.005,              # target soft update
-                    alpha: float = 0.2,              # entropy temperature (fixed, simple)
                     actor_lr: float = 3e-4,
                     critic_lr: float = 3e-4,
+                    replay_size: int = 100000,
+                    alpha: float = 0.2,
+                    gamma: float = 0.99,
+                    tau: float = 0.005,
                     batch_size: int = 128,
-                    replay_size: int = 200_000,
-                    start_steps: int = 20_000,       # collect before updating heavily
-                    updates_per_step: int = 1,       # how many gradient steps per env step after start
                     max_grad_norm: float = 10.0):
         
         self.obs_shape = obs_shape
@@ -296,7 +294,8 @@ class SACDiscrete_Agent:
             logs = out
         return logs
     
-    def train(self, env, total_steps: int, eval_every: int, log_every: int, save_dir: str):
+    def train(self, env, total_steps: int, start_steps: int, log_every: int, 
+              eval_every: int,  updates_per_step: int, save_dir: str):
         env = make_env(self.env_id)
 
         # creating directory with date for saving runs

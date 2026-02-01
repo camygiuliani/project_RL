@@ -92,8 +92,6 @@ def main():
                                             critic_lr= cfg['sac']['critic_lr'],
                                             batch_size = cfg['sac']['batch_size'],
                                             replay_size = cfg['sac']['replay_size'],
-                                            start_steps = cfg['sac']['start_steps'],       # collect before updating heavily
-                                            updates_per_step = cfg['sac']['updates_per_step'],       # how many gradient steps per env step after start
                                             max_grad_norm = cfg['sac']['max_grad_norm'])
             info="SAC"   
 
@@ -121,14 +119,17 @@ def main():
               ppo_agent.train(total_steps=cfg["ppo"]["total_steps"],
                               n_checkpoints=cfg["ppo"]["n_checkpoints"],
                               log_every=cfg["ppo"]["log_every"],
-                              save_dir=cfg["ppo"]["save_dir"])
+                              save_dir=cfg["ppo"]["save_dir"],
+                              checkpoint_dir=cfg["ppo"]["checkpoints_dir"])
               
         if args.sac:
               print("Starting SAC training...\n")
               sac_agent.train(env=env_id,
                 total_steps=cfg['sac']['total_steps'],
+                start_steps = cfg['sac']['start_steps'],
                 log_every=cfg['sac']['log_every'],
                 eval_every=cfg['sac']['eval_every'],
+                updates_per_step = cfg['sac']['updates_per_step'], 
                 save_dir=cfg['sac']['save_dir'])
               
         

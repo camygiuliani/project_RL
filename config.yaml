@@ -10,26 +10,30 @@ training:
   device: cuda
 
 ddqn:
+  #architecture
   n_channels: 4
   gamma: 0.99
-  lr: 0.0001
-  train_f: 4
-  l_start: 50000
   double_dqn: true
-  batch_size: 32
-  buffer_size: 100000
   target_update: 100000
   epsilon_start: 1.0
   epsilon_end: 0.01
   epsilon_decay: 100000
+  #training
+  l_start: 50000
+  total_steps: 1000000
+  lr: 0.0001
+  train_f: 4
+  batch_size: 32
+  buffer_size: 100000
   n_checkpoints: 0 #5
   log_every: 5000
-  total_steps: 1000000
   save_dir: runs/ddqn
   checkpoints_dir: checkpoints/ddqn
+  #evaluation
   path_best_model: runs/ddqn/2026_01_31/ddqn_1000000.pt
 
 ppo:
+  #architecture
   gamma: 0.99
   lr: 0.0003
   clip_eps: 0.2
@@ -38,30 +42,35 @@ ppo:
   update_epochs: 4
   batch_size: 64
   seed: 0
+  #training
   log_every: 50
   total_steps: 1000
   n_checkpoints: 0 #5
   save_dir: runs/ppo
   checkpoints_dir: checkpoints/ppo
+  #evaluation
   path_best_model: runs/ppo/2026_02_01/ppo_1000.pt
 
 sac:
+  #architecture
   gamma: 0.99
   alpha: 0.2
-  actor_lr:  0.0003
-  critic_lr: 0.0003
-  batch_size: 128
-  replay_size: 100000
-  start_steps: 20000
+  batch_size: 32
+  replay_size: 500000
   tau: 0.005
   updates_per_step: 1
-  log_every: 1000
-  total_steps: 1000000
-  eval_every: 1000
   max_grad_norm: 10.0
+  #training
+  log_every: 1000
+  start_steps: 20000
+  total_steps: 100000
   save_dir: runs/sac
   checkpoints_dir: checkpoints/sac
-  path_best_model: runs/sac/2026_01_27/sac_10000.pt
+  actor_lr:  0.0003
+  critic_lr: 0.0003
+  eval_every: 10000000000000000000  #per i checkpoints 
+  #evaluation
+  path_best_model: runs/sac/2026_02_01/sac_100000.pt
 
 sarfa:
   outdir: ./outputs

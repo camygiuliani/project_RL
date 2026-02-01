@@ -43,9 +43,6 @@ class PPO_Agent:
         self.seed = seed
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-        # loading yaml config
-        self.cfg = load_config("config.yaml")
-
         self.lr = lr
         self.gamma = gamma
         self.gae_lambda = gae_lambda
@@ -137,7 +134,8 @@ class PPO_Agent:
                     "entropy": float(entropy.item())
                 }
 
-    def train(self, total_steps=1_000_000, save_dir: str = None, n_checkpoints: int = 10, log_every: int = 1_000):
+    def train(self, total_steps=1_000_000, save_dir: str = None, n_checkpoints: int = 10,
+               log_every: int = 1_000, checkpoint_dir: str = None):
         # 1. Setup Directories
         date = datetime.now().strftime("%Y_%m_%d")
         outdir_runs = os.path.join(save_dir, date)
@@ -242,7 +240,7 @@ class PPO_Agent:
 
                 if g_step > c_threshold and n_checkpoints > 0:
                     time = datetime.now().strftime("%H_%M_%S")
-                    outdir_ckpt = os.path.join(self.cfg["ppo"]["checkpoints_dir"], date)
+                    outdir_ckpt = os.path.join(checkpoint_dir, date)
                     os.makedirs(outdir_ckpt, exist_ok=True)
                     ckpt_path = os.path.join(outdir_ckpt, f"ppo_step_{g_step}_{time}.pt")
                     self.save(ckpt_path)
