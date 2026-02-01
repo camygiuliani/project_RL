@@ -116,20 +116,11 @@ class SACDiscrete_Agent:
                     env_id="ALE/SpaceInvaders-v5",
                     actor_lr: float = 3e-4,
                     critic_lr: float = 3e-4,
-                    replay_size: int = 100000,
-                    alpha: float = 0.2,
-                    gamma: float = 0.99,
-                    tau: float = 0.005,
-                    batch_size: int = 128,
-                    max_grad_norm: float = 10.0):
+                    replay_size: int = 100000):
         
         self.obs_shape = obs_shape
         self.n_actions = n_actions
         self.device = device
-        
-        
-        # loading yaml config
-        self.cfg = load_config("config.yaml")
         self.env_id = env_id
 
         C = obs_shape[2]
@@ -148,12 +139,12 @@ class SACDiscrete_Agent:
         self.q2_tgt.eval()
 
         # Optims
-        self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr=self.cfg["sac"]["actor_lr"])
-        self.q1_opt = torch.optim.Adam(self.q1.parameters(), lr=self.cfg["sac"]["critic_lr"])
-        self.q2_opt = torch.optim.Adam(self.q2.parameters(), lr=self.cfg["sac"]["critic_lr"])
+        self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr= actor_lr)
+        self.q1_opt = torch.optim.Adam(self.q1.parameters(), lr= critic_lr)
+        self.q2_opt = torch.optim.Adam(self.q2.parameters(), lr= critic_lr)
 
         # Buffer
-        self.replay = ReplayBuffer(obs_shape, self.cfg["sac"]["replay_size"], device)
+        self.replay = ReplayBuffer(obs_shape, replay_size, device)
 
         # Counters
         self.total_steps = 0
@@ -173,8 +164,7 @@ class SACDiscrete_Agent:
         a = int(dist.sample().item())
         return a
     
-    def _soft_update(self, net: nn.Module, tgt: nn.Module):
-        tau = self.cfg["sac"]["tau"]
+    def _soft_update(self, net: nn.Module, tgt: nn.Module, tau: float):
         for p, pt in zip(net.parameters(), tgt.parameters()):
             pt.data.mul_(1.0 - tau)
             pt.data.add_(tau * p.data)
@@ -190,21 +180,18 @@ class SACDiscrete_Agent:
         probs = torch.exp(log_probs)
         return probs, log_probs
 
-    def can_update(self) -> bool:
-        return len(self.replay) >= self.cfg["sac"]["batch_size"]
+    def can_update(self, batch_size: int) -> bool:
+        return len(self.replay) >= batch_size
 
-    def update(self) -> dict:
+    def update(self, max_grad_norm: float, batch_size: int, gamma, alpha, tau) -> dict:
         """
         One SAC update step (critic(s) + actor + target soft update).
         Returns a dict of losses for logging.
         """
-        if not self.can_update():
+        if not self.can_update(batch_size= batch_size):
             return {}
 
-        obs, actions, rewards, next_obs, dones = self.replay.sample(self.cfg["sac"]["batch_size"])
-        gamma = self.cfg["sac"]["gamma"]
-        alpha = self.cfg["sac"]["alpha"]
-
+        obs, actions, rewards, next_obs, dones = self.replay.sample(batch_size)
         
         #1) Soft policy evaluation step
         with torch.no_grad():
@@ -241,12 +228,12 @@ class SACDiscrete_Agent:
 
         self.q1_opt.zero_grad(set_to_none=True)
         q1_loss.backward()
-        nn.utils.clip_grad_norm_(self.q1.parameters(), self.cfg["sac"]["max_grad_norm"])
+        nn.utils.clip_grad_norm_(self.q1.parameters(), max_grad_norm)
         self.q1_opt.step()
 
         self.q2_opt.zero_grad(set_to_none=True)
         q2_loss.backward()
-        nn.utils.clip_grad_norm_(self.q2.parameters(), self.cfg["sac"]["max_grad_norm"])
+        nn.utils.clip_grad_norm_(self.q2.parameters(), max_grad_norm)
         self.q2_opt.step()
 
         logits = self.actor(obs)
@@ -265,13 +252,13 @@ class SACDiscrete_Agent:
 
         self.actor_opt.zero_grad(set_to_none=True)
         actor_loss.backward()
-        nn.utils.clip_grad_norm_(self.actor.parameters(), self.cfg["sac"]["max_grad_norm"])
+        nn.utils.clip_grad_norm_(self.actor.parameters(), max_grad_norm)
         self.actor_opt.step()
 
         #3) Target soft updates
         #   Stabilize training by slowly updating target networks.
-        self._soft_update(self.q1, self.q1_tgt)
-        self._soft_update(self.q2, self.q2_tgt)
+        self._soft_update(net= self.q1, tgt= self.q1_tgt, tau= tau)
+        self._soft_update(net= self.q2, tgt= self.q2_tgt, tau= tau)
 
         self.total_updates += 1
 
@@ -282,21 +269,27 @@ class SACDiscrete_Agent:
             "alpha": float(alpha),
         }
 
-    def update_many(self, n_updates: int) -> dict:
+    def update_many(self, n_updates: int, alpha: float, gamma: float, tau: float, 
+                    max_grad_norm: float, batch_size: int) -> dict:
         """
         Run multiple update steps (useful: updates_per_step).
         """
         logs = {}
         for _ in range(n_updates):
-            out = self.update()
+            out = self.update(max_grad_norm= max_grad_norm, batch_size= batch_size, gamma= gamma, alpha= alpha, tau= tau)
             if not out:
                 break
             logs = out
         return logs
     
     def train(self, env, total_steps: int, start_steps: int, log_every: int, 
-              eval_every: int,  updates_per_step: int, save_dir: str):
+              eval_every: int, updates_per_step: int, checkpoint_dir: str, 
+              n_checkpoints: int, save_dir: str, max_grad_norm: float, batch_size: int,
+              alpha: float = 0.2, gamma: float = 0.99, tau: float = 0.005):
+        
         env = make_env(self.env_id)
+        threshold = total_steps // n_checkpoints if n_checkpoints > 0 else 0
+        c_threshold = threshold
 
         # creating directory with date for saving runs
         date = datetime.now().strftime("%Y_%m_%d")
@@ -371,8 +364,9 @@ class SACDiscrete_Agent:
                 ep_alphas.clear()
 
             # updates (off-policy)
-            if self.total_steps > self.cfg["sac"]["start_steps"] and self.can_update():
-                logs=self.update_many(self.cfg["sac"]["updates_per_step"])
+            if self.total_steps > start_steps and self.can_update(batch_size= batch_size):
+                logs=self.update_many(n_updates=updates_per_step, alpha=alpha, gamma=gamma, tau= tau,
+                                      max_grad_norm=max_grad_norm, batch_size=batch_size)
                 if logs is not None:
                     ep_q1_losses.append(float(logs["q1_loss"]))
                     ep_q2_losses.append(float(logs["q2_loss"]))
@@ -394,19 +388,15 @@ class SACDiscrete_Agent:
                     tqdm.write(f"[step {step}] Collecting data... (No update yet)")
                             
             # checkpoint
-            if step >= next_eval:
-                ckpt_dir= self.cfg["sac"]["checkpoints_dir"]
-
+            if step > c_threshold and n_checkpoints>0:
                 date = datetime.now().strftime("%Y_%m_%d")
                 time = datetime.now().strftime("%H_%M_%S")
-                outdir_ckpt = os.path.join(ckpt_dir, date)
+                outdir_ckpt = os.path.join(checkpoint_dir, date)
                 os.makedirs(outdir_ckpt, exist_ok=True)
                 ckpt_path = os.path.join(outdir_ckpt, f"sac_step_{step}_{time}.pt")
-
                 self.save(ckpt_path)
-
                 tqdm.write(f"[SAC] saved checkpoint at step {step}")
-                next_eval += eval_every
+                c_threshold+=threshold
 
         env.close()
         

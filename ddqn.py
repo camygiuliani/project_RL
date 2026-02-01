@@ -56,9 +56,6 @@ class DDQN_Agent:
         self.tgt.eval()
         self.optim = torch.optim.Adam(self.q.parameters(), lr=lr)
 
-        # loading yaml config
-        self.cfg = load_config("config.yaml")
-
     @torch.no_grad()
     def act(self, obs_arr, eps: float):
         if np.random.rand() < eps:
@@ -110,8 +107,8 @@ class DDQN_Agent:
         return float(loss.item())
     
     def train(self, batch_size:int, buffer_size:int, total_steps:int,
-               l_start:int, train_f:int, target_update:int, n_checkpoints:int, log_every:int=1000,
-               save_dir: str = "runs/ddqn"):
+            l_start:int, train_f:int, target_update:int, checkpoint_dir: str = None, n_checkpoints:int = 0,
+            log_every:int=1000, save_dir: str = "runs/ddqn"):
         
         seed = 0  
         threshold = total_steps//n_checkpoints if n_checkpoints>0 else 0 
@@ -212,18 +209,15 @@ class DDQN_Agent:
                     
             # checkpoint
             if step > c_threshold and n_checkpoints>0:
-
-                ckpt_dir= self.cfg["ddqn"]["checkpoints_dir"]
-                   
                 date = datetime.now().strftime("%Y_%m_%d")
                 time = datetime.now().strftime("%H_%M_%S")
-                outdir_ckpt = os.path.join(ckpt_dir, date)
+                outdir_ckpt = os.path.join(checkpoint_dir, date)
                 os.makedirs(outdir_ckpt, exist_ok=True)
-
                 ckpt_path = os.path.join(outdir_ckpt, f"ddqn_step_{step}_{time}.pt")
                 self.save(ckpt_path)
-
+                tqdm.write(f"[DDQN] saved checkpoint at step {step}")
                 c_threshold+=threshold
+
         env.close()
        
         #saving training metrics to csv
@@ -275,7 +269,6 @@ class DDQN_Agent:
         ckpt = torch.load(path, map_location=self.device)
         self.q.load_state_dict(ckpt["q"])
         self.sync_target()
-
 
 
 class ReplayBuffer:

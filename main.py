@@ -73,8 +73,7 @@ def main():
                 rollout_len=cfg["ppo"]["rollout_steps"],
                 update_epochs=cfg["ppo"]["update_epochs"],
                 batch_size=cfg["ppo"]["batch_size"],
-                device=device,
-                save_dir=cfg["ppo"]["save_dir"],
+                device=device
             )
             info="PPO"   
            
@@ -83,16 +82,11 @@ def main():
             print("Initializing SAC agent...")
             sac_agent = SACDiscrete_Agent(obs_shape=obs_shape,
                                             n_actions=n_actions,
-                                            env_id=env_id,
                                             device=device,
-                                            gamma= cfg['sac']['gamma'],
-                                            tau = cfg['sac']['tau'],              # target soft update
-                                            alpha = cfg['sac']['alpha'],              # entropy temperature (fixed, simple)
+                                            env_id=env_id,
                                             actor_lr = cfg['sac']['actor_lr'],
                                             critic_lr= cfg['sac']['critic_lr'],
-                                            batch_size = cfg['sac']['batch_size'],
-                                            replay_size = cfg['sac']['replay_size'],
-                                            max_grad_norm = cfg['sac']['max_grad_norm'])
+                                            replay_size = cfg['sac']['replay_size'])
             info="SAC"   
 
     ####################################
@@ -102,16 +96,16 @@ def main():
     if args.train:
         if args.ddqn:
               print("Starting DDQN training...\n")
-              ddqn_agent.train(
-                total_steps=cfg['ddqn']['total_steps'],
-                l_start=cfg['ddqn']['l_start'],
-                train_f=cfg['ddqn']['train_f'],
-                batch_size=cfg['ddqn']['batch_size'],
-                buffer_size= cfg['ddqn']['buffer_size'],
-                target_update=cfg['ddqn']['target_update'],
-                n_checkpoints=cfg['ddqn']['n_checkpoints'],
-                log_every=cfg['ddqn']['log_every'],
-                save_dir=cfg['ddqn']['save_dir'])
+              ddqn_agent.train(total_steps=cfg['ddqn']['total_steps'],
+                               l_start=cfg['ddqn']['l_start'],
+                               train_f=cfg['ddqn']['train_f'],
+                               batch_size=cfg['ddqn']['batch_size'],
+                               buffer_size= cfg['ddqn']['buffer_size'],
+                               target_update=cfg['ddqn']['target_update'],
+                               checkpoint_dir=cfg['ddqn']['checkpoints_dir'],
+                               n_checkpoints=cfg['ddqn']['n_checkpoints'],
+                               log_every=cfg['ddqn']['log_every'],
+                               save_dir=cfg['ddqn']['save_dir'])
 
 
         if args.ppo:
@@ -125,12 +119,19 @@ def main():
         if args.sac:
               print("Starting SAC training...\n")
               sac_agent.train(env=env_id,
-                total_steps=cfg['sac']['total_steps'],
-                start_steps = cfg['sac']['start_steps'],
-                log_every=cfg['sac']['log_every'],
-                eval_every=cfg['sac']['eval_every'],
-                updates_per_step = cfg['sac']['updates_per_step'], 
-                save_dir=cfg['sac']['save_dir'])
+                              total_steps=cfg['sac']['total_steps'],
+                              start_steps = cfg['sac']['start_steps'],
+                              log_every=cfg['sac']['log_every'],
+                              eval_every=cfg['sac']['eval_every'],
+                              updates_per_step = cfg['sac']['updates_per_step'],
+                              checkpoint_dir=cfg['sac']['checkpoints_dir'],
+                              n_checkpoints=cfg['sac']['n_checkpoints'], 
+                              save_dir=cfg['sac']['save_dir'],
+                              max_grad_norm=cfg['sac']['max_grad_norm'],
+                              batch_size=cfg['sac']['batch_size'],
+                              alpha=cfg['sac']['alpha'],
+                              gamma=cfg['sac']['gamma'],
+                              tau=cfg['sac']['tau'])
               
         
         end_train_time = time.time()

@@ -36,8 +36,7 @@ class ActorCriticCNN(nn.Module):
 
 class PPO_Agent:
     def __init__(self, obs_shape, n_actions, env_id="ALE/SpaceInvaders-v5", seed=0, device=None, lr=2.5e-4, gamma=0.99, gae_lambda=0.95, clip_eps=0.1, 
-        ent_coef=0.01, vf_coef=0.5, max_grad_norm=0.5, rollout_len=128, update_epochs=4, batch_size=256,
-        save_dir="runs/ppo",eval_episodes=10):
+        ent_coef=0.01, vf_coef=0.5, max_grad_norm=0.5, rollout_len=128, update_epochs=4, batch_size=256):
         
         self.env_id = env_id
         self.seed = seed
@@ -54,8 +53,6 @@ class PPO_Agent:
         self.rollout_len = rollout_len
         self.update_epochs = update_epochs
         self.batch_size = batch_size
-        self.save_dir = save_dir
-        self.eval_episodes = eval_episodes
 
         os.makedirs(self.save_dir, exist_ok=True)
 
@@ -134,8 +131,9 @@ class PPO_Agent:
                     "entropy": float(entropy.item())
                 }
 
-    def train(self, total_steps=1_000_000, save_dir: str = None, n_checkpoints: int = 10,
-               log_every: int = 1_000, checkpoint_dir: str = None):
+    def train(self, total_steps=1_000_000,  checkpoint_dir: str = None, n_checkpoints: int = 10,
+               log_every: int = 1_000, save_dir: str = None):
+        
         # 1. Setup Directories
         date = datetime.now().strftime("%Y_%m_%d")
         outdir_runs = os.path.join(save_dir, date)

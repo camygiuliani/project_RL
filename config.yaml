@@ -56,7 +56,7 @@ sac:
   gamma: 0.99
   alpha: 0.2
   batch_size: 32
-  replay_size: 500000
+  replay_size: 400000
   tau: 0.005
   updates_per_step: 1
   max_grad_norm: 10.0
@@ -66,9 +66,9 @@ sac:
   total_steps: 100000
   save_dir: runs/sac
   checkpoints_dir: checkpoints/sac
-  actor_lr:  0.0003
-  critic_lr: 0.0003
-  eval_every: 10000000000000000000  #per i checkpoints 
+  n_checkpoints: 0 #5
+  actor_lr:  0.00025
+  critic_lr: 0.00025
   #evaluation
   path_best_model: runs/sac/2026_02_01/sac_100000.pt
 
