@@ -29,9 +29,14 @@ aggiungendo la directory per i checkpoint [OK]
 - next_eval meccanismo pure sugli altri oltre sac
 -render per eval[OK]
 
-===== 31 Gen==============
+===== 31 Gen    ==============
 - problema csv train di DDQN
 - azioni sarfa?
+
+
+> Inserire nel readme per alsa comandi apt ===========
+sudo apt install -y alsa-utils libasound2t64
+sudo apt install -y pulseaudio
 
 
 

@@ -21,6 +21,7 @@ Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
 git clone https://github.com/USERNAME/project_RL.git
 cd project_RL
 ```
+
 ### 2. Create and activate a virtual environment
 The project was developed and tested with Python 3.12.3
 ```bash
@@ -31,6 +32,14 @@ source venv/bin/activate
 ```bash
 pip install -r requirements.txt
 ```
+
+### 3a. Additional libraries
+Needed to fix alsa sound
+```bash
+sudo apt install -y alsa-utils libasound2t64
+sudo apt install -y pulseaudio
+```
+
 
 ### 4. Configuration
 All hyperparameters, paths, and experimental settings are defined in a single configuration file: **config.yaml**. This includes:
