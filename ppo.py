@@ -95,25 +95,6 @@ class PPO_Agent:
         _, v = self.net(x)
         return float(v.item())
 
-    @torch.no_grad()
-    def eval(self, seed_offset=10_000):
-        env = make_env(env_id=self.env_id, seed=self.seed + seed_offset)
-        rets = []
-        for _ in range(self.eval_episodes):
-            obs, _ = env.reset()
-            done = False
-            ep_ret = 0.0
-            while not done:
-                x = torch.from_numpy(obs).to(self.device).permute(2, 0, 1).unsqueeze(0).float() / 255.0
-                logits, _ = self.net(x)
-                action = int(torch.argmax(logits, dim=1).item())  # deterministic eval
-                obs, r, term, trunc, _ = env.step(action)
-                done = term or trunc
-                ep_ret += float(r)
-            rets.append(ep_ret)
-        env.close()
-        return float(np.mean(rets)), float(np.std(rets))
-        
     def update(self):
         # to torch
         obs_t = torch.from_numpy(self.buffer.obs).to(self.device).permute(0, 3, 1, 2).float() / 255.0

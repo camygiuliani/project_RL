@@ -12,38 +12,38 @@ training:
 ddqn:
   n_channels: 4
   gamma: 0.99
-  lr: 0.00001
+  lr: 0.0001
   train_f: 4
-  l_start: 10000
+  l_start: 50000
   double_dqn: true
   batch_size: 32
   buffer_size: 100000
-  target_update: 10000
+  target_update: 100000
   epsilon_start: 1.0
   epsilon_end: 0.01
   epsilon_decay: 100000
   n_checkpoints: 0 #5
   log_every: 5000
-  total_steps: 100000
+  total_steps: 1000000
   save_dir: runs/ddqn
   checkpoints_dir: checkpoints/ddqn
-  path_best_model: runs/ddqn/2026_01_25/ddqn_1000000.pt
+  path_best_model: runs/ddqn/2026_01_31/ddqn_1000000.pt
 
 ppo:
   gamma: 0.99
   lr: 0.0003
   clip_eps: 0.2
   gae_lambda: 0.95
-  rollout_steps: 128
+  rollout_steps: 2048
   update_epochs: 4
-  batch_size: 256
+  batch_size: 64
   seed: 0
-  log_every: 10
-  total_steps: 100
+  log_every: 50
+  total_steps: 1000
   n_checkpoints: 0 #5
   save_dir: runs/ppo
   checkpoints_dir: checkpoints/ppo
-  path_best_model: runs/ppo/2026_01_25/ppo_1000000.pt
+  path_best_model: runs/ppo/2026_02_01/ppo_1000.pt
 
 sac:
   gamma: 0.99
@@ -51,12 +51,12 @@ sac:
   actor_lr:  0.0003
   critic_lr: 0.0003
   batch_size: 128
-  replay_size: 200000
-  start_steps: 200
+  replay_size: 100000
+  start_steps: 20000
   tau: 0.005
   updates_per_step: 1
   log_every: 1000
-  total_steps: 10000
+  total_steps: 1000000
   eval_every: 1000
   max_grad_norm: 10.0
   save_dir: runs/sac
