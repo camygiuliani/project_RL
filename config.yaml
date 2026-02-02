@@ -61,7 +61,7 @@ sac:
   max_grad_norm: 10.0
   tau: 0.005
   gamma: 0.99
-  alpha: 0.05
+  alpha: 0.2
   log_every: 10000
   start_steps: 20000
   total_steps: 250000
@@ -71,7 +71,7 @@ sac:
   actor_lr:  0.00025
   critic_lr: 0.00025
   #evaluation
-  path_best_model: runs/sac/2026_02_01/sac_100000.pt
+  path_best_model: runs/sac/2026_02_02/sac_250000.pt
 
 sarfa:
   outdir: ./outputs
