@@ -53,17 +53,17 @@ ppo:
 
 sac:
   #architecture
-  gamma: 0.99
-  alpha: 0.2
-  batch_size: 32
-  replay_size: 400000
-  tau: 0.005
+  batch_size: 64
+  replay_size: 500000
+  #training
   updates_per_step: 1
   max_grad_norm: 10.0
-  #training
-  log_every: 1000
+  tau: 0.005
+  gamma: 0.99
+  alpha: 0.05
+  log_every: 10000
   start_steps: 20000
-  total_steps: 100000
+  total_steps: 500000
   save_dir: runs/sac
   checkpoints_dir: checkpoints/sac
   n_checkpoints: 0 #5

@@ -283,7 +283,7 @@ class SACDiscrete_Agent:
         return logs
     
     def train(self, env, total_steps: int, start_steps: int, log_every: int, 
-              eval_every: int, updates_per_step: int, checkpoint_dir: str, 
+              updates_per_step: int, checkpoint_dir: str, 
               n_checkpoints: int, save_dir: str, max_grad_norm: float, batch_size: int,
               alpha: float = 0.2, gamma: float = 0.99, tau: float = 0.005):
         
@@ -301,8 +301,6 @@ class SACDiscrete_Agent:
         final_path_csv = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
 
         obs, _ = env.reset(seed=0)
-      
-        next_eval = eval_every
 
         os.makedirs(f"checkpoints/sac", exist_ok=True)
 

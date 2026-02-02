@@ -122,7 +122,6 @@ def main():
                               total_steps=cfg['sac']['total_steps'],
                               start_steps = cfg['sac']['start_steps'],
                               log_every=cfg['sac']['log_every'],
-                              eval_every=cfg['sac']['eval_every'],
                               updates_per_step = cfg['sac']['updates_per_step'],
                               checkpoint_dir=cfg['sac']['checkpoints_dir'],
                               n_checkpoints=cfg['sac']['n_checkpoints'], 
