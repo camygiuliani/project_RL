@@ -265,8 +265,7 @@ class SACDiscrete_Agent:
         return {
             "q1_loss": float(q1_loss.item()),
             "q2_loss": float(q2_loss.item()),
-            "actor_loss": float(actor_loss.item()),
-            "alpha": float(alpha),
+            "actor_loss": float(actor_loss.item())
         }
 
     def update_many(self, n_updates: int, alpha: float, gamma: float, tau: float, 
@@ -287,20 +286,19 @@ class SACDiscrete_Agent:
               n_checkpoints: int, save_dir: str, max_grad_norm: float, batch_size: int,
               alpha: float = 0.2, gamma: float = 0.99, tau: float = 0.005):
         
-        env = make_env(self.env_id)
+        seed = 0
         threshold = total_steps // n_checkpoints if n_checkpoints > 0 else 0
         c_threshold = threshold
 
-        # creating directory with date for saving runs
         date = datetime.now().strftime("%Y_%m_%d")
         outdir_runs = os.path.join(save_dir, date)
         os.makedirs(outdir_runs, exist_ok=True)
-        # final path for saving the final model
         final_path = os.path.join(outdir_runs, f"sac_{total_steps}.pt")
-        ## path for csv file
         final_path_csv = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
 
-        obs, _ = env.reset(seed=0)
+        print(f"Using device: {self.device}")
+        env = make_env(self.env_id, seed=seed)
+        obs, _ = env.reset(seed=seed)
 
         os.makedirs(f"checkpoints/sac", exist_ok=True)
 
@@ -369,7 +367,7 @@ class SACDiscrete_Agent:
                     ep_q1_losses.append(float(logs["q1_loss"]))
                     ep_q2_losses.append(float(logs["q2_loss"]))
                     ep_actor_losses.append(float(logs["actor_loss"]))
-                    ep_alphas.append(float(logs["alpha"]))
+
 
             
             if step % log_every == 0:
@@ -379,7 +377,6 @@ class SACDiscrete_Agent:
                     f"q1={logs['q1_loss']:.3f} "
                     f"q2={logs['q2_loss']:.3f} "
                     f"actor={logs['actor_loss']:.3f} "
-                    f"alpha={logs['alpha']:.3f}"
                    )
 
                 else:

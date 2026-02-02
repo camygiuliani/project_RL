@@ -67,13 +67,15 @@ def main():
             print("Initializing PPO agent...")
             ppo_agent = PPO_Agent(
                 obs_shape=obs_shape,
-                n_actions=n_actions,
+                n_actions=n_actions, 
                 env_id=env_id,
-                seed=cfg["ppo"]["seed"],
+                device=device,
+                lr= cfg["ppo"]["lr"],
+                gamma=cfg["ppo"]["gamma"],
+                gae_lambda=cfg["ppo"]["gae_lambda"],
                 rollout_len=cfg["ppo"]["rollout_steps"],
-                update_epochs=cfg["ppo"]["update_epochs"],
                 batch_size=cfg["ppo"]["batch_size"],
-                device=device
+                
             )
             info="PPO"   
            
@@ -112,9 +114,16 @@ def main():
               print("Starting PPO training...\n")
               ppo_agent.train(total_steps=cfg["ppo"]["total_steps"],
                               n_checkpoints=cfg["ppo"]["n_checkpoints"],
+                              update_epochs=cfg["ppo"]["update_epochs"],
+                              batch_size=cfg["ppo"]["batch_size"],
+                              max_grad_norm=cfg["ppo"]["max_grad_norm"],
+                              vf_coef=cfg["ppo"]["vf_coef"],
+                              ent_coef=cfg["ppo"]["ent_coef"],
+                              clip_eps= cfg["ppo"]["clip_eps"],
                               log_every=cfg["ppo"]["log_every"],
                               save_dir=cfg["ppo"]["save_dir"],
-                              checkpoint_dir=cfg["ppo"]["checkpoints_dir"])
+                              checkpoint_dir=cfg["ppo"]["checkpoints_dir"],
+                              )
               
         if args.sac:
               print("Starting SAC training...\n")

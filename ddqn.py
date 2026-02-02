@@ -114,12 +114,11 @@ class DDQN_Agent:
         threshold = total_steps//n_checkpoints if n_checkpoints>0 else 0 
         c_threshold = threshold
 
-        # creating directory with date for saving runs
         date = datetime.now().strftime("%Y_%m_%d")
         outdir_runs = os.path.join(save_dir, date)
         os.makedirs(outdir_runs, exist_ok=True)
-        # final path for saving the final model
         final_path = os.path.join(outdir_runs, f"ddqn_{total_steps}.pt")
+        final_path_csv = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
 
         print(f"Using device: {self.device}")
         env = make_env(env_id=self.env, seed=seed)
@@ -138,7 +137,6 @@ class DDQN_Agent:
         ## for file csv
         history = []
         returns_window = []   # per avg_return_100
-        final_path_cvs = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
 
 
         pbar = tqdm(range(1, total_steps + 1))
@@ -221,7 +219,7 @@ class DDQN_Agent:
         env.close()
        
         #saving training metrics to csv
-        save_training_csv(history, final_path_cvs)
+        save_training_csv(history, final_path_csv)
 
         #final save
         self.save(final_path)

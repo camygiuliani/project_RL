@@ -35,25 +35,15 @@ class ActorCriticCNN(nn.Module):
 
 
 class PPO_Agent:
-    def __init__(self, obs_shape, n_actions, env_id="ALE/SpaceInvaders-v5", seed=0, device=None, lr=2.5e-4, gamma=0.99, gae_lambda=0.95, clip_eps=0.1, 
-        ent_coef=0.01, vf_coef=0.5, max_grad_norm=0.5, rollout_len=128, update_epochs=4, batch_size=256):
+    def __init__(self, obs_shape, n_actions, env_id="ALE/SpaceInvaders-v5", device=None, lr=2.5e-4, gamma=0.99, gae_lambda=0.95, rollout_len=128):
         
         self.env_id = env_id
-        self.seed = seed
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
         self.lr = lr
         self.gamma = gamma
         self.gae_lambda = gae_lambda
-        self.clip_eps = clip_eps
-        self.ent_coef = ent_coef
-        self.vf_coef = vf_coef
-        self.max_grad_norm = max_grad_norm
 
         self.rollout_len = rollout_len
-        self.update_epochs = update_epochs
-        self.batch_size = batch_size
-
         os.makedirs(self.save_dir, exist_ok=True)
 
         self.obs_shape = obs_shape  # (84,84,4)
@@ -69,8 +59,8 @@ class PPO_Agent:
             gae_lambda=self.gae_lambda,
         )
 
-        np.random.seed(self.seed)
-        torch.manual_seed(self.seed)
+        #np.random.seed(self.seed)
+        #torch.manual_seed(self.seed)
 
     @torch.no_grad()
     def act(self, obs_uint8):
@@ -89,7 +79,8 @@ class PPO_Agent:
         _, v = self.net(x)
         return float(v.item())
 
-    def update(self):
+    def update(self, update_epochs=None,  batch_size=None, max_grad_norm=None, 
+               vf_coef=None, ent_coef=None, clip_eps=None):
         # to torch
         obs_t = torch.from_numpy(self.buffer.obs).to(self.device).permute(0, 3, 1, 2).float() / 255.0
         actions_t = torch.from_numpy(self.buffer.actions).to(self.device)
@@ -100,10 +91,10 @@ class PPO_Agent:
         N = obs_t.shape[0]
         idx = np.arange(N)
 
-        for _ in range(self.update_epochs):
+        for _ in range(update_epochs):
             np.random.shuffle(idx)
-            for start in range(0, N, self.batch_size):
-                mb = idx[start:start + self.batch_size]
+            for start in range(0, N, batch_size):
+                mb = idx[start:start + batch_size]
 
                 logits, values = self.net(obs_t[mb])
                 dist = torch.distributions.Categorical(logits=logits)
@@ -112,16 +103,16 @@ class PPO_Agent:
 
                 ratio = torch.exp(logps - old_logps_t[mb])
                 surr1 = ratio * adv_t[mb]
-                surr2 = torch.clamp(ratio, 1.0 - self.clip_eps, 1.0 + self.clip_eps) * adv_t[mb]
+                surr2 = torch.clamp(ratio, 1.0 - clip_eps, 1.0 + clip_eps) * adv_t[mb]
                 actor_loss = -torch.min(surr1, surr2).mean()
 
                 critic_loss = F.mse_loss(values, ret_t[mb])
 
-                loss = actor_loss + self.vf_coef * critic_loss - self.ent_coef * entropy
+                loss = actor_loss + vf_coef * critic_loss - ent_coef * entropy
 
                 self.opt.zero_grad(set_to_none=True)
                 loss.backward()
-                nn.utils.clip_grad_norm_(self.net.parameters(), self.max_grad_norm)
+                nn.utils.clip_grad_norm_(self.net.parameters(), max_grad_norm)
                 self.opt.step()
 
                 return {
@@ -131,14 +122,15 @@ class PPO_Agent:
                     "entropy": float(entropy.item())
                 }
 
-    def train(self, total_steps=1_000_000,  checkpoint_dir: str = None, n_checkpoints: int = 10,
-               log_every: int = 1_000, save_dir: str = None):
+    def train(self, total_steps=1_000_000, n_checkpoints: int = 10,
+              update_epochs=4, batch_size=256, max_grad_norm=0.5, vf_coef=0.5, ent_coef=0.01, clip_eps=0.1,  
+              log_every: int = 1_000, checkpoint_dir: str = None, save_dir: str = None):
         
-        # 1. Setup Directories
+        seed = 0
+
         date = datetime.now().strftime("%Y_%m_%d")
         outdir_runs = os.path.join(save_dir, date)
-        os.makedirs(outdir_runs, exist_ok=True)
-        
+        os.makedirs(outdir_runs, exist_ok=True)    
         final_path = os.path.join(outdir_runs, f"ppo_{total_steps}.pt")
         final_path_csv = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
 
@@ -153,8 +145,8 @@ class PPO_Agent:
         ep_entropies = []
         ep_total_losses = []
 
-        env = make_env(env_id=self.env_id, seed=self.seed)
-        obs, _ = env.reset(seed=self.seed)
+        env = make_env(env_id=self.env_id, seed=seed)
+        obs, _ = env.reset(seed=seed)
         
         g_step = 0
         
@@ -218,7 +210,8 @@ class PPO_Agent:
                 self.buffer.compute_returns_and_advantages(last_value=last_v)
 
                 self.net.train()
-                logs = self.update() # PPO update happens here
+                logs = self.update(update_epochs=update_epochs, batch_size= batch_size, max_grad_norm= max_grad_norm,
+                                   vf_coef= vf_coef, ent_coef= ent_coef, clip_eps= clip_eps) # PPO update happens here
                 ep_actor_losses.append(logs["actor_loss"])
                 ep_critic_losses.append(logs["critic_loss"])
                 ep_entropies.append(logs["entropy"])
