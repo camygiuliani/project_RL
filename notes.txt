@@ -39,5 +39,9 @@ sudo apt install -y alsa-utils libasound2t64
 sudo apt install -y pulseaudio
 
 
+==== 3 Feb ====
+Add vectorized environment on PPO and DDQN for better training 
+
+
 
 

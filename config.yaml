@@ -47,7 +47,7 @@ ppo:
   total_steps: 500000
   n_checkpoints: 0 #5
   update_epochs: 4
-  batch_size: 256
+  batch_size: 128
   save_dir: runs/ppo
   checkpoints_dir: checkpoints/ppo
   #evaluation

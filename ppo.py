@@ -80,6 +80,7 @@ class PPO_Agent:
     def update(self, update_epochs=None,  batch_size=None, max_grad_norm=None, 
                vf_coef=None, ent_coef=None, clip_eps=None):
         # to torch
+        losses = []
         obs_t = torch.from_numpy(self.buffer.obs).to(self.device).permute(0, 3, 1, 2).float() / 255.0
         actions_t = torch.from_numpy(self.buffer.actions).to(self.device)
         old_logps_t = torch.from_numpy(self.buffer.logps).to(self.device)
@@ -113,12 +114,15 @@ class PPO_Agent:
                 nn.utils.clip_grad_norm_(self.net.parameters(), max_grad_norm)
                 self.opt.step()
 
-                return {
-                    "loss": float(loss.item()),
-                    "actor_loss": float(actor_loss.item()),
-                    "critic_loss": float(critic_loss.item()),
-                    "entropy": float(entropy.item())
-                }
+                losses.append((loss.item(), actor_loss.item(), critic_loss.item(), entropy.item()))
+
+        l, a, c, e = map(np.mean, zip(*losses))
+        return {
+            "loss": float(l),
+            "actor_loss": float(a),
+            "critic_loss": float(c),
+            "entropy": float(e)
+        }
 
     def train(
     self,
