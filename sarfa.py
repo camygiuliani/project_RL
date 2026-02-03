@@ -381,6 +381,97 @@ def _save_side_by_side(image_paths, out_path):
     combo = cv2.hconcat(resized)
     cv2.imwrite(out_path, combo)
 
+def _extract_ale_rgb(env):
+    # Try to get ALE screen RGB through wrappers
+    ale = None
+    current_env = env
+    while hasattr(current_env, "env"):
+        if hasattr(current_env, "ale"):
+            ale = current_env.ale
+            break
+        current_env = current_env.env
+    if ale is None and hasattr(current_env, "ale"):
+        ale = current_env.ale
+
+    if ale is not None:
+        try:
+            return ale.getScreenRGB()
+        except Exception:
+            pass
+
+    # fallback
+    try:
+        return env.render()
+    except Exception:
+        return None
+
+
+def _collect_snapshots(env, seed, snap_steps):
+    """
+    Returns list of tuples: (obs_uint8, rgb_bg) for each step in snap_steps.
+    Uses random actions to advance the env.
+    """
+    obs, _ = env.reset(seed=seed)
+    snaps = []
+    max_step = max(snap_steps)
+    target_set = set(snap_steps)
+
+    for t in range(1, max_step + 1):
+        a = env.action_space.sample()
+        obs, _, terminated, truncated, _ = env.step(a)
+        done = terminated or truncated
+        if done:
+            obs, _ = env.reset()
+
+        if t in target_set:
+            # ensure uint8
+            obs_u = obs
+            if obs_u.max() <= 1.0:
+                obs_u = (obs_u * 255).astype(np.uint8)
+            else:
+                obs_u = obs_u.astype(np.uint8)
+
+            rgb = _extract_ale_rgb(env)
+            snaps.append((t, obs_u, rgb))
+
+    return snaps
+
+
+def _save_grid_3x3(grid_paths, snap_order, algo_order, out_path):
+    """
+    grid_paths: dict like grid_paths[snap_name][algo] = png_path
+    snap_order: ["early","mid","late"]
+    algo_order: ["ddqn","ppo","sac"]
+    """
+    fig, axes = plt.subplots(len(snap_order), len(algo_order), figsize=(15, 15))
+
+    for i, snap in enumerate(snap_order):
+        for j, algo in enumerate(algo_order):
+            ax = axes[i, j] if len(snap_order) > 1 else axes[j]
+            p = grid_paths.get(snap, {}).get(algo, None)
+            if p is None or not os.path.exists(p):
+                ax.axis("off")
+                ax.set_title("MISSING")
+                continue
+
+            im_bgr = cv2.imread(p)               # BGR
+            im_rgb = cv2.cvtColor(im_bgr, cv2.COLOR_BGR2RGB)
+            ax.imshow(im_rgb)
+            ax.axis("off")
+
+            # Column titles (top row)
+            if i == 0:
+                ax.set_title(algo.upper(), fontsize=16, pad=12)
+
+            # Row labels (left column)
+            if j == 0:
+                ax.set_ylabel(snap.upper(), fontsize=16, rotation=90, labelpad=18)
+
+    plt.tight_layout()
+    plt.savefig(out_path, dpi=200, bbox_inches="tight", pad_inches=0.2)
+    plt.close()
+
+
 
 def main():
 
@@ -396,6 +487,10 @@ def main():
     parser.add_argument("--ddqn_model", type=str, default=cfg["ddqn"]["path_best_model"])
     parser.add_argument("--ppo_model", type=str, default=cfg["ppo"]["path_best_model"])
     parser.add_argument("--sac_model", type=str, default=cfg["sac"]["path_best_model"])
+    parser.add_argument("--snap_steps", type=int, nargs="+", default=[50, 300, 800],
+                    help="Environment steps (after reset) at which to take SARFA snapshots (early/mid/late).")
+    parser.add_argument("--snap_names", type=str, nargs="+", default=["early", "mid", "late"],
+                    help="Names for snapshots; must match snap_steps length.")
 
     args = parser.parse_args()
 
@@ -409,7 +504,7 @@ def main():
     except:
         env = make_env(env_id=cfg["env"]["id"], seed=args.seed)
 
-    # reset and workout part
+    """ # reset and workout part
     obs, _ = env.reset(seed=args.seed)
     
     print("Doing warmup with 50 step...")
@@ -437,9 +532,20 @@ def main():
         except:
             pass
     if rgb_bg is None:
-        rgb_bg = env.render()
+        rgb_bg = env.render() """
+    
+    # --- Collect early/mid/late snapshots ---
+    if len(args.snap_names) != len(args.snap_steps):
+        raise ValueError("--snap_names length must match --snap_steps length")
 
-    # computing SARFA
+    print(f"Collecting snapshots at steps: {list(zip(args.snap_names, args.snap_steps))}")
+    snapshots = _collect_snapshots(env, seed=args.seed, snap_steps=args.snap_steps)
+
+    # Map step -> name for nicer filenames
+    step_to_name = {s: n for n, s in zip(args.snap_names, args.snap_steps)}
+
+
+    """ # computing SARFA
     print(f"Computing Sarfa for patch={args.patch} on device={device}...")
     n_actions = env.action_space.n
     obs_shape = env.observation_space.shape
@@ -565,14 +671,138 @@ def main():
         plt.savefig(png_path, dpi=200, bbox_inches="tight", pad_inches=0)
         plt.close()
         print(f"[SARFA] Saved: {png_path}")
-        saved_paths.append(png_path)
+        saved_paths.append(png_path) """
+    
 
-    if args.algo == "all" and len(saved_paths) == 3:
+
+    """ if args.algo == "all" and len(saved_paths) == 3:
         combo_path = os.path.join(outdir, f"sarfa_ALL_{time}.png")
         _save_side_by_side(saved_paths, combo_path)
-        print(f"[SARFA] Saved side-by-side: {combo_path}")
-        
-    env.close()
+        print(f"[SARFA] Saved side-by-side: {combo_path}") """
+    
+    print(f"Computing SARFA for patch={args.patch} on device={device}...")
+    n_actions = env.action_space.n
+    obs_shape = env.observation_space.shape
+
+    date = datetime.now().strftime("%Y_%m_%d")
+    time = datetime.now().strftime("%H_%M_%S")
+    outdir = os.path.join(args.outdir, date)
+    os.makedirs(outdir, exist_ok=True)
+
+    # always run all 3 algos when doing snapshot analysis
+    algos_to_run = ["ddqn", "ppo", "sac"] if args.algo in ["all"] else [args.algo]
+
+    # store paths for final 3x3 grid: grid_paths[snap_name][algo] = png_path
+    grid_paths = {}
+
+
+    for (t, obs, rgb_bg) in snapshots:
+        snap_name = step_to_name.get(t, f"t{t}")
+        print(f"\n=== Snapshot {snap_name} (step={t}) ===")
+
+        saved_paths = []
+
+        for algo in algos_to_run:
+            # --- your existing DDQN / PPO / SAC blocks ---
+            if algo == "ddqn":
+                print("Using DDQN agent for SARFA...")
+                agent = DDQN_Agent(env, obs_shape[2], n_actions, device, double_dqn=True)
+                agent.load(args.ddqn_model)
+
+                heat, action = sarfa_heatmap(
+                    agent, obs,
+                    patch=args.patch,
+                    stride=args.stride,
+                    fill_mode="mean",
+                    batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
+                    use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],
+                    clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
+                    use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"],
+                    flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
+                )
+
+            elif algo == "ppo":
+                print("Using PPO agent for SARFA...")
+                ckpt = torch.load(args.ppo_model, map_location=device)
+                actor_critic = ActorCriticCNN(in_channels=cfg["sarfa"]["ppo"]["in_channels"],
+                                            n_actions=n_actions).to(device)
+                actor_critic.load_state_dict(ckpt["net"])
+                actor_critic.eval()
+
+                heat, action = sarfa_heatmap_ppo(
+                    actor_critic, device, obs,
+                    patch=args.patch, stride=args.stride,
+                    fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
+                    batch_size=cfg["sarfa"]["ppo"]["batch_size"]
+                )
+
+            else:  # sac
+                print("Using SAC agent for SARFA...")
+                agent = SACDiscrete_Agent(obs_shape=obs.shape, n_actions=n_actions, device=device, env_id=cfg["env"]["id"])
+                agent.load(args.sac_model)
+
+                heat, action = sarfa_heatmap_policy_logp(
+                    lambda x: sac_policy_logits(agent, x),
+                    device,
+                    obs,
+                    patch=args.patch,
+                    stride=args.stride
+                )
+
+            # --- your existing visualization code, but use rgb_bg from this snapshot ---
+            heat_vis = blur_heatmap(heat, k=7)
+            if heat_vis.max() > 0:
+                heat_vis = (heat_vis - heat_vis.min()) / (heat_vis.max() - heat_vis.min() + 1e-8)
+                thr = np.mean(heat_vis)
+                heat_vis[heat_vis < thr] = 0.0
+
+            rgb = rgb_bg
+            if hasattr(rgb, "detach"):
+                rgb = rgb.detach().cpu().numpy()
+            rgb = np.array(rgb)
+            if len(rgb.shape) == 2:
+                rgb = np.stack([rgb]*3, axis=-1)
+            if rgb.shape[:2] != heat_vis.shape:
+                heat_vis = cv2.resize(heat_vis, (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_NEAREST)
+
+            cmap = plt.get_cmap("jet")
+            overlay = cmap(heat_vis)
+            overlay[..., 3] = heat_vis * 0.7
+
+            plt.figure(figsize=(10, 10))
+            plt.imshow(rgb)
+            plt.imshow(overlay)
+            plt.axis("off")
+            plt.title(f"SARFA {snap_name} (Action: {action}) - {algo} - MaxHeat: {heat.max():.4f}")
+
+            png_path = os.path.join(outdir, f"sarfa_{snap_name}_{algo}_{time}.png")
+            plt.savefig(png_path, dpi=200, bbox_inches="tight", pad_inches=0)
+            plt.close()
+            print(f"[SARFA] Saved: {png_path}")
+            saved_paths.append(png_path)
+
+            grid_paths.setdefault(snap_name, {})[algo] = png_path
+
+
+        # side-by-side per snapshot
+        if len(saved_paths) == 3:
+            combo_path = os.path.join(outdir, f"sarfa_{snap_name}_ALL_{time}.png")
+            _save_side_by_side(saved_paths, combo_path)
+            print(f"[SARFA] Saved side-by-side: {combo_path}")
+
+        # final 3x3 grid
+        # final 3x3 grid
+        # if user asked for all, save a single 3x3 grid (early/mid/late x ddqn/ppo/sac)
+        if args.algo == "all":
+            snap_order = args.snap_names  # ["early","mid","late"]
+            algo_order = ["ddqn", "ppo", "sac"]
+            grid_out = os.path.join(outdir, f"sarfa_GRID_{time}.png")
+            _save_grid_3x3(grid_paths, snap_order, algo_order, grid_out)
+            print(f"[SARFA] Saved 3x3 grid: {grid_out}")
+
+            
+        env.close()
+    
     
 
 if __name__ == "__main__":

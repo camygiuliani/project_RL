@@ -50,7 +50,7 @@ ppo:
   save_dir: runs/ppo
   checkpoints_dir: checkpoints/ppo
   #evaluation
-  path_best_model: runs/ppo/2026_02_01/ppo_1000.pt
+  path_best_model: runs/ppo/2026_01_30/ppo_10000.pt
 
 sac:
   #architecture
