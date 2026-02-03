@@ -49,7 +49,7 @@ class PPO_Agent:
         self.n_actions = n_actions
         self.n_envs = n_envs
 
-        self.net = ActorCriticCNN(in_channels=self.obs_shape[2], n_actions=self.n_actions).to(self.device)
+        self.net = ActorCriticCNN(in_channels=4, n_actions=self.n_actions).to(self.device)
         self.opt = torch.optim.Adam(self.net.parameters(), lr=self.lr)
 
         self.buffer = _RolloutBuffer(
@@ -63,23 +63,49 @@ class PPO_Agent:
         #np.random.seed(self.seed)
         #torch.manual_seed(self.seed)
 
-    def preprocess_obs(self, obs_uint8):
+    """ def preprocess_obs(self, obs_uint8):
         x = torch.from_numpy(obs_uint8).to(self.device).float() / 255.0
         if x.ndim == 3:  # single observation
             x = x.unsqueeze(0)
-        if x.shape[1] != self.obs_shape[2]:  # if channels are not second dim
-            # assume last dim is channel
-            x = x.permute(0, 3, 1, 2)
-        return x
+        # Permute ONLY if looks like NHWC (channels last)
+        if x.ndim == 4 and x.shape[-1] in (1, 4) and x.shape[1] not in (1, 4):
+             x = x.permute(0, 3, 1, 2)
+        return x """
     
-    @torch.no_grad()
+    def preprocess_obs(self, obs_uint8):
+        x = torch.as_tensor(obs_uint8, device=self.device).float()
+
+        # Single obs: CHW (4,84,84) or HWC (84,84,4)
+        if x.ndim == 3:
+            if x.shape[0] in (1, 4):                 # CHW
+                x = x.unsqueeze(0)                   # (1,C,H,W)
+            elif x.shape[-1] in (1, 4):              # HWC
+                x = x.permute(2, 0, 1).unsqueeze(0)  # (1,C,H,W)
+            else:
+                raise ValueError(f"Unknown obs shape: {tuple(x.shape)}")
+
+        # Batch obs: NCHW or NHWC
+        elif x.ndim == 4:
+            if x.shape[1] in (1, 4):                 # NCHW
+                pass
+            elif x.shape[-1] in (1, 4):              # NHWC
+                x = x.permute(0, 3, 1, 2)            # NCHW
+            else:
+                raise ValueError(f"Unknown batched obs shape: {tuple(x.shape)}")
+        else:
+            raise ValueError(f"Unexpected obs ndim={x.ndim}, shape={tuple(x.shape)}")
+
+        return x / 255.0
+
+    
+    """ @torch.no_grad()
     def act(self, obs_uint8):     
         x = self.preprocess_obs(obs_uint8)
 
+        print("Input shape to net:", x.shape)
         logits, values = self.net(x)
         # ... rest of your code
 
-        logits, values = self.net(x)
         dist = torch.distributions.Categorical(logits=logits)
 
         actions = dist.sample()
@@ -89,14 +115,30 @@ class PPO_Agent:
             actions.cpu().numpy(),
             logps.cpu().numpy(),
             values.cpu().numpy()
-        )
+        ) """
+    
+    @torch.no_grad()
+    def act(self, obs_uint8):
+        # Se per qualche motivo arriva una batch, prendi la prima
+        x = self.preprocess_obs(obs_uint8)   # ora deve diventare (1,4,84,84)
+        #print("Input shape to net:", x.shape)
+
+        logits, values = self.net(x)
+        dist = torch.distributions.Categorical(logits=logits)
+        actions = dist.sample()
+        logps = dist.log_prob(actions)
+        return (
+            actions.cpu().numpy().astype("int64"),
+            logps.cpu().numpy(),
+            values.cpu().numpy()
+        ) 
+
 
 
     @torch.no_grad()
     def value(self, obs_uint8):         
         x = self.preprocess_obs(obs_uint8)
-        if x.shape[-1] == self.obs_shape[2]:
-            x = x.permute(0, 3, 1, 2)          
+            
         _, v = self.net(x)
         return v.cpu().numpy()
 
@@ -104,7 +146,7 @@ class PPO_Agent:
                vf_coef=None, ent_coef=None, clip_eps=None):
         # to torch
         losses = []
-        obs_t = torch.from_numpy(self.buffer.obs).to(self.device).permute(0, 3, 1, 2).float() / 255.0
+        obs_t = torch.from_numpy(self.buffer.obs).to(self.device).float() / 255.0
         actions_t = torch.from_numpy(self.buffer.actions).to(self.device)
         old_logps_t = torch.from_numpy(self.buffer.logps).to(self.device)
         adv_t = torch.from_numpy(self.buffer.advantages).to(self.device)
@@ -196,9 +238,10 @@ class PPO_Agent:
                 for step in range(self.rollout_len):
                     actions, logps, values = self.act(obs)
                     next_obs, rewards, terms, truncs, _ = env.step(actions)
-                    print("Obs shape:", next_obs.shape)
-                    dones = np.logical_or(terms, truncs).astype(np.float32)
+                    #print("Obs shape:", next_obs.shape)
+                    dones = np.logical_or(terms, truncs)
 
+                    #obs=np.transpose(obs, (0, 2, 3, 1))  # NCHW -> NHWC
                     self.buffer.add(obs, actions, rewards, dones, values, logps)
                     obs = next_obs
                     env_steps += self.n_envs
