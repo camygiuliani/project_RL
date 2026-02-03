@@ -3,6 +3,21 @@ import numpy as np
 import cv2
 from collections import deque
 import ale_py
+from gymnasium.vector import SyncVectorEnv
+
+
+def make_vec_env(env_id, num_envs, seed=0, frame_skip=4):
+    def thunk(rank):
+        def _init():
+            env = make_env(
+                env_id=env_id,
+                seed=seed + rank,
+                frame_skip=frame_skip
+            )
+            return env
+        return _init
+
+    return SyncVectorEnv([thunk(i) for i in range(num_envs)])
 
 class AtariPreprocess(gym.ObservationWrapper):
     def __init__(self, env, width=84, height=84, grayscale=True):
@@ -51,8 +66,16 @@ class FrameStack(gym.Wrapper):
         return np.concatenate(list(self.frames), axis=-1)
 
 def make_env(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4,render_mode=None):
-    env = gym.make(env_id, frameskip=frame_skip, render_mode=render_mode)
-    env.reset(seed=seed)
-    env = AtariPreprocess(env, width=84, height=84, grayscale=True)
-    env = FrameStack(env, k=4)
+    env = gym.make(env_id, frameskip=1, render_mode=render_mode)
+    
+    env = gym.wrappers.AtariPreprocessing(
+        env, 
+        noop_max=30, 
+        frame_skip=frame_skip, 
+        screen_size=84, 
+        terminal_on_life_loss=True, # Critical for learning safety
+        grayscale_obs=True, 
+        scale_obs=False 
+    )
+    env = gym.wrappers.FrameStackObservation(env, 4)
     return env

@@ -44,7 +44,7 @@ ppo:
   ent_coef: 0.01
   clip_eps: 0.1
   log_every: 10000
-  total_steps: 500000
+  total_steps: 1000000
   n_checkpoints: 0 #5
   update_epochs: 4
   batch_size: 128
