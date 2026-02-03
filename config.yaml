@@ -37,20 +37,21 @@ ppo:
   lr: 0.0003
   gae_lambda: 0.95
   gamma: 0.99
+  rollout_steps: 256
   #training
   max_grad_norm: 0.5
   vf_coef: 0.5
   ent_coef: 0.01
-  clip_eps: 0.2
-  log_every: 50
-  total_steps: 1000
+  clip_eps: 0.1
+  log_every: 10000
+  total_steps: 500000
   n_checkpoints: 0 #5
   update_epochs: 4
-  batch_size: 64
+  batch_size: 256
   save_dir: runs/ppo
   checkpoints_dir: checkpoints/ppo
   #evaluation
-  path_best_model: runs/ppo/2026_01_30/ppo_10000.pt
+  path_best_model: runs/ppo/2026_02_03/ppo_500000.pt
 
 sac:
   #architecture

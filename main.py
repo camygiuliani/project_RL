@@ -73,9 +73,7 @@ def main():
                 lr= cfg["ppo"]["lr"],
                 gamma=cfg["ppo"]["gamma"],
                 gae_lambda=cfg["ppo"]["gae_lambda"],
-                rollout_len=cfg["ppo"]["rollout_steps"],
-                batch_size=cfg["ppo"]["batch_size"],
-                
+                rollout_len=cfg["ppo"]["rollout_steps"],       
             )
             info="PPO"   
            
