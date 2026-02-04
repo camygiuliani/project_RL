@@ -14,17 +14,17 @@ ddqn:
   n_channels: 4
   gamma: 0.99
   double_dqn: true
-  target_update: 100000
+  target_update: 10000
   epsilon_start: 1.0
   epsilon_end: 0.01
-  epsilon_decay: 100000
+  epsilon_decay: 800000
   #training
   l_start: 50000
-  total_steps: 1000000
+  total_steps: 500000
   lr: 0.0001
   train_f: 4
   batch_size: 32
-  buffer_size: 100000
+  buffer_size: 250000
   n_checkpoints: 0 #5
   log_every: 5000
   save_dir: runs/ddqn
