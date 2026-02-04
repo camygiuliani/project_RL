@@ -9,7 +9,7 @@ import torch.nn.functional as F
 import torch.nn as nn
 from datetime import datetime
 
-from wrappers import make_env
+from wrappers import make_env, make_env_eval
 from utils import load_config, save_training_csv
 
 
@@ -64,15 +64,15 @@ class DDQN_Agent:
         # obs: (84,84,4) uint8 -> (1,4,84,84) float
         obs_arr = np.array(obs_arr)
         x = torch.from_numpy(obs_arr).to(self.device)
-        x = x.permute(2, 0, 1).unsqueeze(0).float() / 255.0
+        x = x.unsqueeze(0).float() / 255.0
         q = self.q(x)
         return int(torch.argmax(q, dim=1).item())
 
     def update(self, batch):
         obs, acts, rews, next_obs, dones = batch
 
-        obs_t = torch.from_numpy(obs).to(self.device).permute(0,3,1,2).float() / 255.0
-        next_obs_t = torch.from_numpy(next_obs).to(self.device).permute(0,3,1,2).float() / 255.0
+        obs_t = torch.from_numpy(obs).to(self.device).float() / 255.0
+        next_obs_t = torch.from_numpy(next_obs).to(self.device).float() / 255.0
         acts_t = torch.from_numpy(acts).to(self.device)
         rews_t = torch.from_numpy(rews).to(self.device)
         dones_t = torch.from_numpy(dones).to(self.device)
@@ -237,7 +237,7 @@ class DDQN_Agent:
             print("No checkpoint provided or path is None.")
             return -1
 
-        env = make_env(env_id=self.env, seed=seed, render_mode=render_mode)
+        env = make_env_eval(env_id=self.env, seed=seed, render_mode=render_mode)
         returns = []
         for ep in range(n_episodes):
             obs, _ = env.reset()

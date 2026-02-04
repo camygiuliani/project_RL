@@ -6,7 +6,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm, trange
 from utils import load_config, save_training_csv
-from wrappers import make_env , make_vec_env
+from wrappers import make_env , make_vec_env, make_env_eval
 
 
 class ActorCriticCNN(nn.Module):
@@ -326,7 +326,7 @@ class PPO_Agent:
         else:
             print("Using current model weights for evaluation.")
 
-        env = make_env(env_id=self.env_id, seed=seed, render_mode=render_mode)
+        env = make_env_eval(env_id=self.env_id, seed=seed, render_mode=render_mode)
         returns = []
         for ep in range(n_episodes):
             obs, _ = env.reset()

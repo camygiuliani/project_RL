@@ -79,3 +79,19 @@ def make_env(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4,render_mode=Non
     )
     env = gym.wrappers.FrameStackObservation(env, 4)
     return env
+
+def make_env_eval(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4,render_mode=None):
+    env = gym.make(env_id, frameskip=1, render_mode=render_mode)
+    
+    env = gym.wrappers.AtariPreprocessing(
+        env, 
+        noop_max=30, 
+        frame_skip=frame_skip, 
+        screen_size=84, 
+        terminal_on_life_loss=False, # Critical for learning safety
+        grayscale_obs=True, 
+        scale_obs=False 
+    )
+    env = gym.wrappers.FrameStackObservation(env, 4)
+    return env
+

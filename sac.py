@@ -9,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm, trange
 from utils import load_config,save_training_csv
-from wrappers import make_env
+from wrappers import make_env, make_env_eval
 
 
 class SacCNN(nn.Module):
@@ -407,7 +407,7 @@ class SACDiscrete_Agent:
             print("No checkpoint provided.")
             return -1
 
-        env = make_env(env_id=self.env_id, seed=seed, render_mode=render_mode)
+        env = make_env_eval(env_id=self.env_id, seed=seed, render_mode=render_mode)
         returns = []
         for ep in range(n_episodes):
             obs, _ = env.reset()
