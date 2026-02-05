@@ -17,20 +17,20 @@ ddqn:
   target_update: 10000
   epsilon_start: 1.0
   epsilon_end: 0.01
-  epsilon_decay: 800000
+  epsilon_decay: 1500000
   #training
   l_start: 50000
-  total_steps: 500000
+  total_steps: 1000000
   lr: 0.0001
   train_f: 4
   batch_size: 32
-  buffer_size: 250000
+  buffer_size: 400000
   n_checkpoints: 0 #5
   log_every: 5000
   save_dir: runs/ddqn
   checkpoints_dir: checkpoints/ddqn
   #evaluation
-  path_best_model: runs/ddqn/2026_02_04/ddqn_1000000.pt
+  path_best_model: runs/ddqn/2026_02_05/ddqn_1000000.pt
 
 ppo:
   #architecture

@@ -277,14 +277,14 @@ class ReplayBuffer:
         self.size = 0
 
         self.obs = np.zeros((capacity, *obs_shape), dtype=np.uint8)
-        self.next_obs = np.zeros((capacity, *obs_shape), dtype=np.uint8)
+        #self.next_obs = np.zeros((capacity, *obs_shape), dtype=np.uint8)
         self.acts = np.zeros((capacity,), dtype=np.int64)
         self.rews = np.zeros((capacity,), dtype=np.float32)
         self.dones = np.zeros((capacity,), dtype=np.float32)
 
     def add(self, o, a, r, no, done):
         self.obs[self.idx] = o
-        self.next_obs[self.idx] = no
+        #self.next_obs[self.idx] = no
         self.acts[self.idx] = a
         self.rews[self.idx] = r
         self.dones[self.idx] = float(done)
@@ -293,9 +293,17 @@ class ReplayBuffer:
         self.size = min(self.size + 1, self.capacity)
 
     def sample(self, batch_size: int):
-        idxs = np.random.randint(0, self.size, size=batch_size)
-        return (self.obs[idxs], self.acts[idxs], self.rews[idxs],
-                self.next_obs[idxs], self.dones[idxs])
+        limit = self.size if self.size == self.capacity else self.size - 1
+        idxs = np.random.randint(0, limit, size=batch_size)
+        
+        next_idxs = (idxs + 1) % self.capacity
 
+        return (
+            self.obs[idxs], 
+            self.acts[idxs], 
+            self.rews[idxs], 
+            self.obs[next_idxs],  # This is your next_obs!
+            self.dones[idxs]
+        )
     def __len__(self):
         return self.size
