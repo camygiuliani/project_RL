@@ -19,6 +19,28 @@ def make_vec_env(env_id, num_envs, seed=0, frame_skip=4):
 
     return SyncVectorEnv([thunk(i) for i in range(num_envs)])
 
+class FireResetEnv(gym.Wrapper):
+    def __init__(self, env):
+        super().__init__(env)
+        assert env.unwrapped.get_action_meanings()[1] == 'FIRE'
+        assert len(env.unwrapped.get_action_meanings()) >= 3
+
+    def reset(self, **kwargs):
+        self.env.reset(**kwargs)
+        obs, _, terminated, truncated, _ = self.env.step(1) # FIRE
+        if terminated or truncated:
+            self.env.reset(**kwargs)
+        obs, _, terminated, truncated, _ = self.env.step(2) # UP
+        if terminated or truncated:
+            self.env.reset(**kwargs)
+        return obs, {}
+
+class ClipReward(gym.RewardWrapper):
+    def __init__(self, env):
+        super().__init__(env)
+    def reward(self, reward):
+        return np.sign(reward)
+        
 class AtariPreprocess(gym.ObservationWrapper):
     def __init__(self, env, width=84, height=84, grayscale=True):
         super().__init__(env)
@@ -77,6 +99,8 @@ def make_env(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4,render_mode=Non
         grayscale_obs=True, 
         scale_obs=False 
     )
+    env = FireResetEnv(env)      # Fixes the "frozen agent" start
+    env = ClipReward(env)        # Stabilizes PPO training
     env = gym.wrappers.FrameStackObservation(env, 4)
     return env
 
