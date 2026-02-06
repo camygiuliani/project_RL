@@ -67,6 +67,7 @@ def main():
             print("Initializing PPO agent...")
             ppo_agent = PPO_Agent(
                 obs_shape=obs_shape,
+                n_envs=cfg["ppo"]["n_envs"],
                 n_actions=n_actions, 
                 env_id=env_id,
                 device=device,

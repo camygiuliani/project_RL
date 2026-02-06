@@ -36,7 +36,7 @@ class ActorCriticCNN(nn.Module):
 
 
 class PPO_Agent:
-    def __init__(self, obs_shape, n_actions, env_id="ALE/SpaceInvaders-v5", n_envs=4, 
+    def __init__(self, obs_shape, n_actions, env_id="ALE/SpaceInvaders-v5", n_envs=8, 
                  device=None, lr=2.5e-4, gamma=0.99, gae_lambda=0.95, rollout_len=128):
         
         self.env_id = env_id
@@ -189,11 +189,10 @@ class PPO_Agent:
             "entropy": float(e)
         }
 
-    def train(self,total_steps=1_000_000, n_envs= 4, n_checkpoints=10,update_epochs=4,
+    def train(self,total_steps=1_000_000, n_checkpoints=10,update_epochs=4,
                 batch_size=256,max_grad_norm=0.5,vf_coef=0.5,ent_coef=0.01,
                 clip_eps=0.1, log_every=10_000, checkpoint_dir=None, save_dir=None,):
         
-        print("Obs shape:", self.obs_shape)
         seed = 0
         date = datetime.now().strftime("%Y_%m_%d")
 
@@ -207,10 +206,12 @@ class PPO_Agent:
         #env = make_env(env_id=self.env_id, seed=seed)
         #obs, _ = env.reset(seed=seed)
 
-        env = make_vec_env(self.env_id, n_envs, seed)
+        env = make_vec_env(self.env_id, self.n_envs, seed)
         obs, _ = env.reset()
 
         history = []
+        ep_rets = np.zeros(self.n_envs, dtype=np.float32)
+        ep_lens = np.zeros(self.n_envs, dtype=np.int32)
         returns_window = []
 
         ep_ret = 0.0
@@ -218,6 +219,7 @@ class PPO_Agent:
         episode = 0
 
         env_steps = 0
+        last_log_steps = 0
         num_updates = total_steps // self.rollout_len
         checkpoint_every = total_steps // n_checkpoints if n_checkpoints > 0 else None
 
@@ -225,7 +227,7 @@ class PPO_Agent:
 
         with tqdm(total=total_steps, desc="PPO Training") as pbar:
             for update in range(num_updates):
-
+                
                 # ---------- LR ANNEALING ----------
                 frac = 1.0 - (update / num_updates)
                 lr_now = self.lr * frac
@@ -238,30 +240,38 @@ class PPO_Agent:
                 for step in range(self.rollout_len):
                     actions, logps, values = self.act(obs)
                     next_obs, rewards, terms, truncs, _ = env.step(actions)
-                    #print("Obs shape:", next_obs.shape)
+
+                    ep_rets += rewards
+                    ep_lens += 1
                     dones = np.logical_or(terms, truncs)
 
-                    #obs=np.transpose(obs, (0, 2, 3, 1))  # NCHW -> NHWC
+                    
                     self.buffer.add(obs, actions, rewards, dones, values, logps)
+                    
+                    for i in range(self.n_envs):
+                        if dones[i]:
+                            
+                            ret_i = ep_rets[i]
+                            len_i = ep_lens[i]
+                            
+                            returns_window.append(ret_i)
+                            
+                            
+                            history.append({
+                                "env_step": env_steps + (step * self.n_envs), # Stima step totale
+                                "episode": episode,
+                                "ep_len": len_i,
+                                "episodic_return": ret_i,
+                                "avg_return_100": np.mean(returns_window[-100:])
+                            })
+                            
+                            episode += 1
+                            ep_rets[i] = 0.0
+                            ep_lens[i] = 0
+
                     obs = next_obs
                     env_steps += self.n_envs
                     pbar.update(self.n_envs)
-
-                    if  dones.any():
-                        episode += 1
-                        returns_window.append(ep_ret)
-
-                        history.append({
-                            "env_step": env_steps,
-                            "episode": episode,
-                            "ep_len": ep_len,
-                            "episodic_return": ep_ret,
-                            "avg_return_100": np.mean(returns_window[-100:])
-                        })
-
-                        #obs, _ = env.reset()
-                        ep_ret = 0.0
-                        ep_len = 0
 
                     if env_steps >= total_steps:
                         break
@@ -284,17 +294,19 @@ class PPO_Agent:
                 )
 
                 # ---------- LOGGING ----------
-                if env_steps % log_every < self.rollout_len:
+                if env_steps - last_log_steps >= log_every:
                     avg100 = np.mean(returns_window[-100:]) if returns_window else 0.0
                     tqdm.write(
                         f"[Steps {env_steps}] "
-                        f"Avg100={avg100:.1f} "
+                        f"Avg100={avg100:.2f} "
                         f"Loss={logs['loss']:.3f} "
                         f"Actor={logs['actor_loss']:.3f} "
                         f"Critic={logs['critic_loss']:.3f} "
                         f"Ent={logs['entropy']:.3f} "
                         f"LR={lr_now:.6f}"
                     )
+                    # Aggiorniamo il contatore all'ultimo valore stampato
+                    last_log_steps = env_steps
 
                 # ---------- CHECKPOINT ----------
                 if checkpoint_every and env_steps >= checkpoint_every:

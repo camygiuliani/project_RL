@@ -30,7 +30,7 @@ ddqn:
   save_dir: runs/ddqn
   checkpoints_dir: checkpoints/ddqn
   #evaluation
-  path_best_model: runs/ddqn/2026_02_05/ddqn_1000000.pt
+  path_best_model: runs/ddqn/2026_02_06/ddqn_2000000.pt
 
 ppo:
   #architecture
@@ -40,18 +40,19 @@ ppo:
   rollout_steps: 256
   #training
   max_grad_norm: 0.5
+  n_envs: 8
   vf_coef: 0.5
   ent_coef: 0.01
   clip_eps: 0.1
   log_every: 10000
-  total_steps: 1000000
+  total_steps: 3000000
   n_checkpoints: 0 #5
   update_epochs: 4
   batch_size: 128
   save_dir: runs/ppo
   checkpoints_dir: checkpoints/ppo
   #evaluation
-  path_best_model: runs/ppo/2026_02_03/ppo_500000.pt
+  path_best_model: runs/ppo/2026_02_06/ppo_3000000.pt
 
 sac:
   #architecture
