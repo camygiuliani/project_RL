@@ -706,13 +706,13 @@ def main():
             # --- your existing DDQN / PPO / SAC blocks ---
             if algo == "ddqn":
                 print("Using DDQN agent for SARFA...")
-                agent = DDQN_Agent(env, obs_shape[2], n_actions, device, double_dqn=True)
+                agent = DDQN_Agent(env, obs_shape[2], obs_shape, n_actions, device, double_dqn=True)
                 agent.load(args.ddqn_model)
 
                 heat, action = sarfa_heatmap(
                     agent, obs,
                     patch=args.patch,
-                    stride=args.stride,
+                    stride=args.stride, 
                     fill_mode="mean",
                     batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
                     use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],

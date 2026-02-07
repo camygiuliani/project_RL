@@ -13,7 +13,7 @@ from utils import load_config
 from ddqn import DDQN_Agent
 from wrappers import make_env
 from ppo import PPO_Agent
-from sac import SACDiscrete_Agent, SACDiscreteConfig    
+from sac import SACDiscrete_Agent 
 
 
 
@@ -55,11 +55,12 @@ def main():
             print("Initializing DDQN agent...")
 
             ddqn_agent = DDQN_Agent(env=env_id,n_channels= cfg['ddqn']['n_channels'],
-                                   n_actions=n_actions, 
-                                   device=device,
-                                   gamma=cfg['ddqn']['gamma'], 
-                                   lr=cfg['ddqn']['lr'],
-                                   double_dqn=True)         
+                                    obs_shape=obs_shape,
+                                    n_actions=n_actions, 
+                                    device=device,
+                                    gamma=cfg['ddqn']['gamma'], 
+                                    lr=cfg['ddqn']['lr'],
+                                    double_dqn=True)         
             info="DDQN"   
            
         

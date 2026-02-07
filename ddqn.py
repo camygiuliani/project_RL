@@ -37,16 +37,17 @@ def linear_eps(step, eps_start=1.0, eps_end=0.1, decay_steps=1_000_000):
     return eps_start + t * (eps_end - eps_start)
 
 class DDQN_Agent:
-    def __init__(self,env: str,n_channels: int, n_actions: int, device: torch.device, gamma=0.99, lr=1e-4,
+    def __init__(self,env: str,n_channels: int, obs_shape: tuple, n_actions: int, device: torch.device, gamma=0.99, lr=1e-4,
                  double_dqn=True):
 
         self.env = env
         self.n_channels = n_channels
+        self.obs_shape = obs_shape
         self.n_actions = n_actions
         self.device = device
         self.gamma = gamma
         self.double_dqn = double_dqn
-        
+
         # Initialize action-value function Q with random weights
         self.q = DDQNCNN(self.n_actions, self.n_channels).to(self.device)
         # Initialize target action-value function Q with the same weights
@@ -56,15 +57,27 @@ class DDQN_Agent:
         self.tgt.eval()
         self.optim = torch.optim.Adam(self.q.parameters(), lr=lr)
 
+    def preprocess_obs(self, obs_uint8):
+        x = torch.as_tensor(obs_uint8, device=self.device).float()
+
+        # Single obs: CHW (4,84,84) or HWC (84,84,4)
+        if x.ndim == 3:
+            if x.shape[0] in (1, 4):                 # CHW
+                x = x.unsqueeze(0)                   # (1,C,H,W)
+            elif x.shape[-1] in (1, 4):              # HWC
+                x = x.permute(2, 0, 1).unsqueeze(0)  # (1,C,H,W)
+            else:
+                raise ValueError(f"Unknown obs shape: {tuple(x.shape)}")
+        return x / 255.0  
+      
     @torch.no_grad()
     def act(self, obs_arr, eps: float):
         if np.random.rand() < eps:
             return np.random.randint(self.n_actions)
-
+        
         # obs: (84,84,4) uint8 -> (1,4,84,84) float
         obs_arr = np.array(obs_arr)
-        x = torch.from_numpy(obs_arr).to(self.device)
-        x = x.unsqueeze(0).float() / 255.0
+        x = self.preprocess_obs(obs_arr)
         q = self.q(x)
         return int(torch.argmax(q, dim=1).item())
 
@@ -122,10 +135,9 @@ class DDQN_Agent:
 
         print(f"Using device: {self.device}")
         env = make_env(env_id=self.env, seed=seed)
-        obs_shape = env.observation_space.shape  # (84,84,4)
 
         #1.3  Initialize replay memory
-        rb = ReplayBuffer(buffer_size, obs_shape)
+        rb = ReplayBuffer(buffer_size, self.obs_shape)
 
         obs, _ = env.reset(seed=seed)
         ep_ret = 0.0

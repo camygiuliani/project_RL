@@ -88,22 +88,6 @@ class DiscreteCritic(nn.Module):
         q = self.head(z)
         return q
 
-
-
-@dataclass
-class SACDiscreteConfig:
-    gamma: float = 0.99
-    tau: float = 0.005              # target soft update
-    alpha: float = 0.2              # entropy temperature (fixed, simple)
-    actor_lr: float = 3e-4
-    critic_lr: float = 3e-4
-    batch_size: int = 128
-    replay_size: int = 200_000
-    start_steps: int = 20_000       # collect before updating heavily
-    updates_per_step: int = 1       # how many gradient steps per env step after start
-    max_grad_norm: float = 10.0     # optional safety clip
-
-
 class SACDiscrete_Agent:
     """
     Discrete SAC (Atari-friendly).
@@ -123,8 +107,13 @@ class SACDiscrete_Agent:
         self.device = device
         self.env_id = env_id
 
-        C = obs_shape[2]
-        assert C == 4, "Expected stacked frames (84,84,4)"
+        if obs_shape[0] == 4:
+            C = obs_shape[0]
+        # Se shape è (84, 84, 4) -> C=4 a indice 2
+        elif obs_shape[-1] == 4:
+            C = obs_shape[-1]
+        else:
+            raise ValueError(f"Formato osservazione non supportato: {obs_shape}")
 
         # Networks
         self.actor = SacCNN(C, n_actions).to(device)
@@ -150,12 +139,26 @@ class SACDiscrete_Agent:
         self.total_steps = 0
         self.total_updates = 0
 
+    def preprocess_obs(self, obs_uint8):
+        x = torch.as_tensor(obs_uint8, device=self.device).float()
+
+        # Single obs: CHW (4,84,84) or HWC (84,84,4)
+        if x.ndim == 3:
+            if x.shape[0] in (1, 4):                 # CHW
+                x = x.unsqueeze(0)                   # (1,C,H,W)
+            elif x.shape[-1] in (1, 4):              # HWC
+                x = x.permute(2, 0, 1).unsqueeze(0)  # (1,C,H,W)
+            else:
+                raise ValueError(f"Unknown obs shape: {tuple(x.shape)}")
+        return x / 255.0
+    
     @torch.no_grad()
     def act(self, obs_uint8: np.ndarray, deterministic: bool = False) -> int:
         """
         obs_uint8: (84,84,4) uint8
         """
-        x = torch.from_numpy(obs_uint8).to(self.device).permute(2, 0, 1).unsqueeze(0).float() / 255.0
+        x = self.preprocess_obs(obs_uint8)
+        
         logits = self.actor(x)
         if deterministic:
             a = int(torch.argmax(logits, dim=1).item())
@@ -324,7 +327,7 @@ class SACDiscrete_Agent:
             ep_ret += float(r)
             ep_len += 1
 
-            self.replay.add(obs, action, r, next_obs, done)
+            self.replay.add(obs, action, r, done)
             self.total_steps += 1
             obs = next_obs
 
@@ -372,13 +375,13 @@ class SACDiscrete_Agent:
             
             if step % log_every == 0:
                 if logs is not None:
-                   tqdm.write(
-                    f"[step {step}] "
-                    f"q1={logs['q1_loss']:.3f} "
-                    f"q2={logs['q2_loss']:.3f} "
-                    f"actor={logs['actor_loss']:.3f} "
-                   )
-
+                   tqdm.write(      
+                       f"[step {step}] "
+                       f"Avg100={avg100:.3f}, "
+                       f"q1={logs['q1_loss']:.3f} "
+                       f"q2={logs['q2_loss']:.3f} "
+                       f"Actor={logs['actor_loss']:.3f} "
+                      )
                 else:
                     tqdm.write(f"[step {step}] Collecting data... (No update yet)")
                             
@@ -473,7 +476,6 @@ class ReplayBuffer:
 
         H, W, C = obs_shape
         self.obs = np.zeros((self.size, H, W, C), dtype=np.uint8)
-        self.next_obs = np.zeros((self.size, H, W, C), dtype=np.uint8)
         self.actions = np.zeros((self.size,), dtype=np.int64)
         self.rewards = np.zeros((self.size,), dtype=np.float32)
         self.dones = np.zeros((self.size,), dtype=np.float32)
@@ -481,9 +483,8 @@ class ReplayBuffer:
         self.ptr = 0
         self.full = False
 
-    def add(self, obs, action, reward, next_obs, done):
+    def add(self, obs, action, reward, done):
         self.obs[self.ptr] = obs
-        self.next_obs[self.ptr] = next_obs
         self.actions[self.ptr] = int(action)
         self.rewards[self.ptr] = float(reward)
         self.dones[self.ptr] = float(done)
@@ -500,9 +501,15 @@ class ReplayBuffer:
         n = len(self)
         assert n > 0, "ReplayBuffer is empty"
         idx = np.random.randint(0, n, size=batch_size)
+        next_idx = (idx + 1) % n
 
-        obs = torch.from_numpy(self.obs[idx]).to(self.device).permute(0, 3, 1, 2).float() / 255.0
-        next_obs = torch.from_numpy(self.next_obs[idx]).to(self.device).permute(0, 3, 1, 2).float() / 255.0
+        obs = torch.from_numpy(self.obs[idx]).to(self.device).float() / 255.0
+        next_obs = torch.from_numpy(self.obs[next_idx]).to(self.device).float() / 255.0
+
+        if obs.shape[-1] == 4:
+            obs = obs.permute(0, 3, 1, 2)
+            next_obs = next_obs.permute(0, 3, 1, 2)
+
         actions = torch.from_numpy(self.actions[idx]).to(self.device)
         rewards = torch.from_numpy(self.rewards[idx]).to(self.device)
         dones = torch.from_numpy(self.dones[idx]).to(self.device)
