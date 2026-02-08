@@ -106,3 +106,13 @@ eval:
   n_episodes: 10
   n_episodes_render: 3
  
+
+ACTION_NAMES: 
+    0: "NOOP"
+    1: "LEFT"
+    2: "RIGHT"
+    3: "JUMP"
+    4: "FIRE"
+    5: "RIGHTFIRE"
+    6: "LEFTFIRE"
+
