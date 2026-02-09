@@ -100,6 +100,7 @@ class SACDiscrete_Agent:
                     env_id="ALE/SpaceInvaders-v5",
                     actor_lr: float = 3e-4,
                     critic_lr: float = 3e-4,
+                    alpha_lr: float = 3e-4,
                     replay_size: int = 100000):
         
         self.obs_shape = obs_shape
@@ -115,6 +116,9 @@ class SACDiscrete_Agent:
         else:
             raise ValueError(f"Formato osservazione non supportato: {obs_shape}")
 
+        self.target_entropy = 0.98 * np.log(n_actions)
+        self.log_alpha = torch.zeros(1, requires_grad=True, device=device)
+        
         # Networks
         self.actor = SacCNN(C, n_actions).to(device)
         self.q1 = SacCNN(C, n_actions).to(device)
@@ -131,6 +135,7 @@ class SACDiscrete_Agent:
         self.actor_opt = torch.optim.Adam(self.actor.parameters(), lr= actor_lr)
         self.q1_opt = torch.optim.Adam(self.q1.parameters(), lr= critic_lr)
         self.q2_opt = torch.optim.Adam(self.q2.parameters(), lr= critic_lr)
+        self.alpha_opt = torch.optim.Adam([self.log_alpha], lr=alpha_lr)
 
         # Buffer
         self.replay = ReplayBuffer(obs_shape, replay_size, device)
@@ -186,7 +191,7 @@ class SACDiscrete_Agent:
     def can_update(self, batch_size: int) -> bool:
         return len(self.replay) >= batch_size
 
-    def update(self, max_grad_norm: float, batch_size: int, gamma, alpha, tau) -> dict:
+    def update(self, max_grad_norm: float, batch_size: int, gamma, tau) -> dict:
         """
         One SAC update step (critic(s) + actor + target soft update).
         Returns a dict of losses for logging.
@@ -196,6 +201,7 @@ class SACDiscrete_Agent:
 
         obs, actions, rewards, next_obs, dones = self.replay.sample(batch_size)
         
+        alpha = self.log_alpha.exp().item()
         #1) Soft policy evaluation step
         with torch.no_grad():
             next_logits = self.actor(next_obs)
@@ -246,6 +252,7 @@ class SACDiscrete_Agent:
             q1_pi = self.q1(obs)
             q2_pi = self.q2(obs)
             qmin_pi = torch.min(q1_pi, q2_pi)
+            entropy = -torch.sum(probs * logp, dim=1)
         ####################################
 
         #2) Actor update     
@@ -257,6 +264,11 @@ class SACDiscrete_Agent:
         actor_loss.backward()
         nn.utils.clip_grad_norm_(self.actor.parameters(), max_grad_norm)
         self.actor_opt.step()
+   
+        alpha_loss = (self.log_alpha * (entropy - self.target_entropy).detach()).mean()
+        self.alpha_opt.zero_grad()
+        alpha_loss.backward()
+        self.alpha_opt.step()
 
         #3) Target soft updates
         #   Stabilize training by slowly updating target networks.
@@ -268,17 +280,20 @@ class SACDiscrete_Agent:
         return {
             "q1_loss": float(q1_loss.item()),
             "q2_loss": float(q2_loss.item()),
-            "actor_loss": float(actor_loss.item())
+            "actor_loss": float(actor_loss.item()),
+            "alpha_loss": float(alpha_loss.item()), # Log this
+            "alpha": alpha, # Log the current alpha value
+            "entropy": float(entropy.mean().item()) # Useful to track
         }
 
-    def update_many(self, n_updates: int, alpha: float, gamma: float, tau: float, 
+    def update_many(self, n_updates: int, gamma: float, tau: float, 
                     max_grad_norm: float, batch_size: int) -> dict:
         """
         Run multiple update steps (useful: updates_per_step).
         """
         logs = {}
         for _ in range(n_updates):
-            out = self.update(max_grad_norm= max_grad_norm, batch_size= batch_size, gamma= gamma, alpha= alpha, tau= tau)
+            out = self.update(max_grad_norm= max_grad_norm, batch_size= batch_size, gamma= gamma, tau= tau)
             if not out:
                 break
             logs = out
@@ -287,7 +302,7 @@ class SACDiscrete_Agent:
     def train(self, env, total_steps: int, start_steps: int, log_every: int, 
               updates_per_step: int, checkpoint_dir: str, 
               n_checkpoints: int, save_dir: str, max_grad_norm: float, batch_size: int,
-              alpha: float = 0.2, gamma: float = 0.99, tau: float = 0.005):
+              gamma: float = 0.99, tau: float = 0.005):
         
         seed = 0
         threshold = total_steps // n_checkpoints if n_checkpoints > 0 else 0
@@ -300,7 +315,7 @@ class SACDiscrete_Agent:
         final_path_csv = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
 
         print(f"Using device: {self.device}")
-        env = make_env(self.env_id, seed=seed)
+        env = make_env(self.env_id, seed=seed, scale_reward=False)  # Scale rewards for SAC
         obs, _ = env.reset(seed=seed)
 
         os.makedirs(f"checkpoints/sac", exist_ok=True)
@@ -314,6 +329,7 @@ class SACDiscrete_Agent:
         ep_q2_losses=[]
         ep_actor_losses=[]
         ep_alphas=[]
+        ep_entropies=[]
 
         tqdm.write("Starting Discrete SAC training...")
         pbar = trange(1, total_steps + 1, desc="SAC training",leave=True)
@@ -341,6 +357,7 @@ class SACDiscrete_Agent:
                 q2_mean = sum(ep_q2_losses)/len(ep_q2_losses) if ep_q2_losses else None
                 actor_mean = sum(ep_actor_losses)/len(ep_actor_losses) if ep_actor_losses else None
                 alpha_mean = sum(ep_alphas)/len(ep_alphas) if ep_alphas else None
+                entropy_mean = sum(ep_entropies)/len(ep_entropies) if ep_entropies else None
 
                 history.append({
                     "env_step": int(step),
@@ -352,6 +369,7 @@ class SACDiscrete_Agent:
                     "q2_loss_ep_mean": q2_mean,
                     "actor_loss_ep_mean": actor_mean,
                     "alpha_ep_mean": alpha_mean,
+                    "entropy_ep_mean": entropy_mean,
                     "updates_in_episode": int(len(ep_q1_losses)),
                 })
                 obs, _ = env.reset()
@@ -364,12 +382,14 @@ class SACDiscrete_Agent:
 
             # updates (off-policy)
             if self.total_steps > start_steps and self.can_update(batch_size= batch_size):
-                logs=self.update_many(n_updates=updates_per_step, alpha=alpha, gamma=gamma, tau= tau,
+                logs=self.update_many(n_updates=updates_per_step, gamma=gamma, tau= tau,
                                       max_grad_norm=max_grad_norm, batch_size=batch_size)
                 if logs is not None:
                     ep_q1_losses.append(float(logs["q1_loss"]))
                     ep_q2_losses.append(float(logs["q2_loss"]))
                     ep_actor_losses.append(float(logs["actor_loss"]))
+                    ep_alphas.append(float(logs["alpha"]))
+                    ep_entropies.append(float(logs["entropy"]))
 
 
             
@@ -381,6 +401,8 @@ class SACDiscrete_Agent:
                        f"q1={logs['q1_loss']:.3f} "
                        f"q2={logs['q2_loss']:.3f} "
                        f"Actor={logs['actor_loss']:.3f} "
+                       f"Alpha={logs['alpha']:.3f} "
+                       f"Entropy={logs['entropy']:.3f} "
                       )
                 else:
                     tqdm.write(f"[step {step}] Collecting data... (No update yet)")
@@ -499,9 +521,15 @@ class ReplayBuffer:
 
     def sample(self, batch_size: int):
         n = len(self)
-        assert n > 0, "ReplayBuffer is empty"
+        assert n > 1, "ReplayBuffer needs at least 2 frames to sample"
         idx = np.random.randint(0, n, size=batch_size)
-        next_idx = (idx + 1) % n
+        head_idx = (self.ptr - 1) % self.size
+        mask = (idx == head_idx)
+        while np.any(mask):
+            idx[mask] = np.random.randint(0, n, size=np.sum(mask))
+            mask = (idx == head_idx)
+
+        next_idx = (idx + 1) % self.size
 
         obs = torch.from_numpy(self.obs[idx]).to(self.device).float() / 255.0
         next_obs = torch.from_numpy(self.obs[next_idx]).to(self.device).float() / 255.0
