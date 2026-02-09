@@ -42,6 +42,18 @@ sudo apt install -y pulseaudio
 ==== 3 Feb ====
 Add vectorized environment on PPO and DDQN for better training 
 
+============= 9 Feb
+- allenare sac 6 ore
+- capire se si può fixare video
+- analisi stabilità?
 
 
+Michela:
+Questo tipo di analisi sarebbe molto interessante.
+Vi suggerirei di fare la seguente cosa:
+- Oscurare patch casuali per verificare la robustezza/stabilità degli algoritmi testati, che rappresenterà la vostra baseline.
+- Oscurare le parti identificate come importanti da SARFA, per vedere se sono effettivamente i dettagli su cui gli algoritmi si stanno basando per prendere le decisioni. Se effettivamente la diminuzione in performance è maggiore, potete poi fare analisi del tipo: "se un algoritmo si concentra su poche regioni importanti (sparsity) mentre un altro no, rimuovendo lo stesso numero di patch porterà ad un degrado maggiore nel primo piuttosto che nel secondo" ecc.
+In questo modo avrete sia il confronto diretto tra i metodi, che un'analisi più specifica su SARFA, che è l'approccio "non visto a lezione" su cui vi siete concentrate. Se avete tempo, potete anche fare dei grafici con la metrica di degrado che sceglierete sull'asse y (es. delta return, delta return percentuale - di quanto aumenta/diminuisce il return rispetto a quello non perturbed, delta success rate, o altro che sceglierete in base all'environment che state considerando) e la percentuale di osservazione mascherata sull'asse x. Così vedrete quanto sono robuste le decisioni all'aumentare del rumore.
+Una cosa a cui dovrete fare attenzione è come mascherate. Ad esempio, mascherare con tutti 0 (patch nera) nel caso di chess genera esempi OOD, che potrebbero portare ad un'analisi poco indicativa. Una cosa che potreste fare è mascherare sostituendo celle "piene" (con una pedina) con celle vuote con lo stesso colore di background, oppure sostituendo la patch con una patch con la media locale dei pixel in quella patch.
 
+==========================
