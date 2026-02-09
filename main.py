@@ -66,29 +66,28 @@ def main():
         
     if args.ppo:
             print("Initializing PPO agent...")
-            ppo_agent = PPO_Agent(
-                obs_shape=obs_shape,
-                n_envs=cfg["ppo"]["n_envs"],
-                n_actions=n_actions, 
-                env_id=env_id,
-                device=device,
-                lr= cfg["ppo"]["lr"],
-                gamma=cfg["ppo"]["gamma"],
-                gae_lambda=cfg["ppo"]["gae_lambda"],
-                rollout_len=cfg["ppo"]["rollout_steps"],       
-            )
+            ppo_agent = PPO_Agent(obs_shape=obs_shape,
+                                  n_envs=cfg["ppo"]["n_envs"],
+                                  n_actions=n_actions, 
+                                  env_id=env_id,
+                                  device=device,
+                                  lr= cfg["ppo"]["lr"],
+                                  gamma=cfg["ppo"]["gamma"],
+                                  gae_lambda=cfg["ppo"]["gae_lambda"],
+                                  rollout_len=cfg["ppo"]["rollout_steps"],
+                                  alpha=cfg["ppo"]["alpha"])
             info="PPO"   
            
         
     if args.sac:
             print("Initializing SAC agent...")
             sac_agent = SACDiscrete_Agent(obs_shape=obs_shape,
-                                            n_actions=n_actions,
-                                            device=device,
-                                            env_id=env_id,
-                                            actor_lr = cfg['sac']['actor_lr'],
-                                            critic_lr= cfg['sac']['critic_lr'],
-                                            replay_size = cfg['sac']['replay_size'])
+                                          n_actions=n_actions,
+                                          device=device,
+                                          env_id=env_id,
+                                          actor_lr = cfg['sac']['actor_lr'],
+                                          critic_lr= cfg['sac']['critic_lr'],
+                                          replay_size = cfg['sac']['replay_size'])
             info="SAC"   
 
     ####################################
@@ -137,7 +136,6 @@ def main():
                               save_dir=cfg['sac']['save_dir'],
                               max_grad_norm=cfg['sac']['max_grad_norm'],
                               batch_size=cfg['sac']['batch_size'],
-                              alpha=cfg['sac']['alpha'],
                               gamma=cfg['sac']['gamma'],
                               tau=cfg['sac']['tau'])
               
