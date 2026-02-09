@@ -59,14 +59,14 @@ sac:
   batch_size: 256
   replay_size: 600000
   #training
-  updates_per_step: 1
+  updates_per_step: 2
   max_grad_norm: 10.0
   tau: 0.005
   gamma: 0.99
-  alpha: 0.2
+  alpha: 0.0003
   log_every: 10000
   start_steps: 50000
-  total_steps: 500000
+  total_steps: 1000000
   save_dir: runs/sac
   checkpoints_dir: checkpoints/sac
   n_checkpoints: 0 #5
