@@ -5,7 +5,7 @@ from collections import deque
 import ale_py
 from gymnasium.vector import SyncVectorEnv
 
-
+#for ppo
 def make_vec_env(env_id, num_envs, seed=0, frame_skip=4):
     def thunk(rank):
         def _init():
@@ -40,6 +40,14 @@ class ClipReward(gym.RewardWrapper):
         super().__init__(env)
     def reward(self, reward):
         return np.sign(reward)
+
+class ScaleReward(gym.RewardWrapper):
+    def __init__(self, env, scale=0.01):
+        super().__init__(env)
+        self.scale = scale
+        
+    def reward(self, reward):
+        return reward * self.scale
         
 class AtariPreprocess(gym.ObservationWrapper):
     def __init__(self, env, width=84, height=84, grayscale=True):
@@ -87,7 +95,7 @@ class FrameStack(gym.Wrapper):
     def _get_obs(self):
         return np.concatenate(list(self.frames), axis=-1)
 
-def make_env(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4,render_mode=None):
+def make_env(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4,render_mode=None, scale_reward=False):
     env = gym.make(env_id, frameskip=1, render_mode=render_mode)
     
     env = gym.wrappers.AtariPreprocessing(
@@ -99,8 +107,11 @@ def make_env(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4,render_mode=Non
         grayscale_obs=True, 
         scale_obs=False 
     )
-    env = FireResetEnv(env)      # Fixes the "frozen agent" start
-    env = ClipReward(env)        # Stabilizes PPO training
+    env = FireResetEnv(env)
+    if scale_reward:
+        env = ScaleReward(env, scale=0.01)
+    else:      
+        env = ClipReward(env)  # Stabilizes PPO training
     env = gym.wrappers.FrameStackObservation(env, 4)
     return env
 
@@ -112,7 +123,7 @@ def make_env_eval(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4,render_mod
         noop_max=30, 
         frame_skip=frame_skip, 
         screen_size=84, 
-        terminal_on_life_loss=False, # Critical for learning safety
+        terminal_on_life_loss=False, # During evaluation, we want to see the agent's performance without premature episode termination  
         grayscale_obs=True, 
         scale_obs=False 
     )
