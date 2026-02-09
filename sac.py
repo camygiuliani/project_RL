@@ -33,61 +33,7 @@ class SacCNN(nn.Module):
         z = self.fc(z)
         return z
     
-class CNNEncoder(nn.Module):
-    """
-    Atari-style CNN encoder (like DQN).
-    Input: (N,4,84,84) float in [0,1]
-    Output: (N,512)
-    """
-    def __init__(self, in_channels: int):
-        super().__init__()
-        self.conv = nn.Sequential(
-            nn.Conv2d(in_channels, 32, kernel_size=8, stride=4), nn.ReLU(),
-            nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(),
-            nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU(),
-        )
-
-        # 84x84 -> 7x7x64 = 3136
-        self.fc = nn.Sequential(
-            nn.Flatten(),
-            nn.Linear(3136, 512), nn.ReLU(),
-        )
-
-    def forward(self, x):
-        z = self.conv(x)
-        z = self.fc(z)
-        return z
-
-
-class DiscreteActor(nn.Module):
-    """
-    Actor: outputs logits -> Categorical policy over discrete actions.
-    """
-    def __init__(self, in_channels: int, n_actions: int):
-        super().__init__()
-        self.enc = CNNEncoder(in_channels)
-        self.head = nn.Linear(512, n_actions)
-
-    def forward(self, x):
-        z = self.enc(x)
-        logits = self.head(z)
-        return logits
-
-
-class DiscreteCritic(nn.Module):
-    """
-    Critic: outputs Q(s, a) for all actions -> (N, n_actions)
-    """
-    def __init__(self, in_channels: int, n_actions: int):
-        super().__init__()
-        self.enc = CNNEncoder(in_channels)
-        self.head = nn.Linear(512, n_actions)
-
-    def forward(self, x):
-        z = self.enc(x)
-        q = self.head(z)
-        return q
-
+    
 class SACDiscrete_Agent:
     """
     Discrete SAC (Atari-friendly).
