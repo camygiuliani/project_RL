@@ -116,7 +116,7 @@ class SACDiscrete_Agent:
         else:
             raise ValueError(f"Formato osservazione non supportato: {obs_shape}")
 
-        self.target_entropy = 0.98 * np.log(n_actions)
+        self.target_entropy = 0.3 * np.log(n_actions)
         self.log_alpha = torch.zeros(1, requires_grad=True, device=device)
         
         # Networks
@@ -143,6 +143,10 @@ class SACDiscrete_Agent:
         # Counters
         self.total_steps = 0
         self.total_updates = 0
+
+       
+
+
 
     def preprocess_obs(self, obs_uint8):
         x = torch.as_tensor(obs_uint8, device=self.device).float()
@@ -264,6 +268,10 @@ class SACDiscrete_Agent:
         actor_loss.backward()
         nn.utils.clip_grad_norm_(self.actor.parameters(), max_grad_norm)
         self.actor_opt.step()
+
+        #clamping log_alpha for stability and to prevent extreme values
+        with torch.no_grad():
+            self.log_alpha.clamp_(min=-5.0, max=2.0)
    
         alpha_loss = (self.log_alpha * (entropy - self.target_entropy).detach()).mean()
         self.alpha_opt.zero_grad()
