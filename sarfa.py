@@ -18,14 +18,6 @@ from sac import SACDiscrete_Agent
 
 def _get_fill_value(obs_uint8, mode="mean"):
     # here we decide how to fill the occluded patch
-    
-    """
-    obs_uint8: (H,W,4) uint8
-    mode:
-      - "mean": mean for channel (default)
-      - "zero": black (zeros)
-    returns: fill value (1,1,4) uint8
-    """
     if mode == "zero":
         return 0
     # mean for channel (shape (1,1,4)) then broadcast
@@ -45,9 +37,7 @@ def q_values_batch(agent, obs_uint8_batch):
     q = agent.q(x)  # (N,A)
     return q.detach().cpu().numpy()
 
-#heart of the SARFA-like method
-#in here we  generate the heatmap
-def sarfa_heatmap(agent, obs_input, patch=8, stride=4, 
+def sarfa_heatmap_DDQN(agent, obs_input, patch=8, stride=4, 
                   fill_mode="mean", batch_size=32, 
                   use_advantage=True, clamp_positive=True,
                   use_action_flip=True, flip_weight=2.0):
@@ -123,11 +113,6 @@ def sarfa_heatmap(agent, obs_input, patch=8, stride=4,
     return heatmap, base_action
 
 
-
-# =========================
-# PPO version 
-# =========================
-
 @torch.no_grad()
 def ppo_logprobs_batch(actor_critic_net, device, obs_uint8_batch, actions=None):
     """
@@ -175,7 +160,7 @@ def blur_heatmap(heat, k=7):
             out[y, x] = h[y:y+k, x:x+k].mean()
     return out
 
-def sarfa_heatmap_policy_logp(
+def sarfa_heatmap_SAC(
     policy_net, device, obs_input,
     patch=8, stride=4, fill_mode="mean", batch_size=32,
     clamp_positive=True, use_action_flip=True, flip_weight=2.0,
@@ -254,7 +239,7 @@ def sarfa_heatmap_policy_logp(
 
 #original patch=8 stride=8
 
-def sarfa_heatmap_ppo(model, device, obs_input, patch=8, stride=4, 
+def sarfa_heatmap_PPO(model, device, obs_input, patch=8, stride=4, 
                               fill_mode="mean", batch_size=32, 
                               clamp_positive=True, use_action_flip=True, flip_weight=2.0):
     
@@ -284,21 +269,16 @@ def sarfa_heatmap_ppo(model, device, obs_input, patch=8, stride=4,
     
 
     with torch.no_grad():
-        # TODO controllare questo pezzo
-        # --- FIX ATTRIBUTE ERROR ---
-        # Il modello restituisce (logits, values) oppure (distribution, values).
-        # Controlliamo cosa abbiamo ricevuto.
         output, _ = model(obs_tensor)
         
         if hasattr(output, 'logits'):
             logits = output.logits
         else:
-            logits = output # this is already the logits
+            logits = output 
 
         base_probs = torch.softmax(logits, dim=-1)
         base_action = torch.argmax(base_probs, dim=-1).item()
         base_prob_val = base_probs[0, base_action].item()
-        # ---------------------------
 
     # grid coordinates
     H, W, C = obs.shape
@@ -333,7 +313,6 @@ def sarfa_heatmap_ppo(model, device, obs_input, patch=8, stride=4,
        
 
         with torch.no_grad():
-            # --- FIX ATTRIBUTE ERROR (Anche qui nel loop) ---
             output_p, _ = model(batch_tensor)
             
             if hasattr(output_p, 'logits'):
@@ -342,7 +321,6 @@ def sarfa_heatmap_ppo(model, device, obs_input, patch=8, stride=4,
                 logits_p = output_p
             
             probs_p = torch.softmax(logits_p, dim=-1)
-            # -----------------------------------------------
         
         # computing sarfa scores
         new_probs_of_base_action = probs_p[:, base_action]
@@ -502,614 +480,7 @@ def _save_grid_3x3(grid_paths, snap_order, algo_order, out_path):
     plt.savefig(out_path, dpi=200, bbox_inches="tight", pad_inches=0.2)
     plt.close()
 
-''' 
-def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_steps=500):
-    """
-    Runs an episode and records a video with the SARFA heatmap overlaid.
-    """
-    print(f"--- Starting Video Recording for {algo_name} ---")
-    
-    # 1. Setup Video Writer
-    obs, _ = env.reset(seed=args.seed)
-    
-    # Get initial RGB frame to determine video dimensions
-    rgb_frame = _extract_ale_rgb(env)
-    if rgb_frame is None:
-        print("Error: Could not extract RGB frame for video.")
-        return
-
-    height, width, layers = rgb_frame.shape
-    # Upscale factor for better visibility
-    scale = 4
-    video_size = (width * scale, height * scale)
-    
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(out_path, fourcc, 30.0, video_size)
-
-    try:
-        for step in range(max_steps):
-            if step % 10 == 0:
-                print(f"Rendering frame {step}/{max_steps}...")
-
-            # 2. Compute Heatmap & Action based on Algo
-            # We use the existing sarfa functions which return (heatmap, best_action)
-            
-            # Prepare observation (uint8 check)
-            obs_in = obs
-            if obs_in.max() <= 1.0:
-                obs_in = (obs_in * 255).astype(np.uint8)
-            else:
-                obs_in = obs_in.astype(np.uint8)
-
-            heatmap = None
-            action = 0
-
-            if algo_name == "ddqn":
-                heatmap, action = sarfa_heatmap(
-                    agent, obs_in,
-                    patch=args.patch, stride=args.stride,
-                    fill_mode="mean",
-                    batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
-                    use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],
-                    clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
-                    use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"],
-                    flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
-                )
-            elif algo_name == "ppo":
-                heatmap, action = sarfa_heatmap_ppo(
-                    agent, device, obs_in,
-                    patch=args.patch, stride=args.stride,
-                    fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
-                    batch_size=cfg["sarfa"]["ppo"]["batch_size"]
-                )
-            elif algo_name == "sac":
-                heatmap, action = sarfa_heatmap_policy_logp(
-                    lambda x: sac_policy_logits(agent, x),
-                    device, obs_in,
-                    patch=args.patch, stride=args.stride
-                )
-
-            # 3. Process Heatmap for Video (using OpenCV for speed)
-            # Blur
-            heatmap = blur_heatmap(heatmap, k=7)
-            
-            # Normalize (0 to 1)
-            if heatmap.max() > 0:
-                heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
-            
-            # Thresholding (clean up low noise)
-            thr = np.mean(heatmap)
-            heatmap[heatmap < thr] = 0.0
-
-            # Resize heatmap to match RGB frame
-            heatmap_resized = cv2.resize(heatmap, (width, height), interpolation=cv2.INTER_NEAREST)
-            
-            # Convert to Color Map (0-255)
-            heatmap_uint8 = (heatmap_resized * 255).astype(np.uint8)
-            heatmap_color = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
-
-            # 4. Blend Images
-            # Get current RGB background
-            bg_rgb = _extract_ale_rgb(env)
-            # Convert RGB (Gym) to BGR (OpenCV)
-            bg_bgr = cv2.cvtColor(bg_rgb, cv2.COLOR_RGB2BGR)
-
-            # Create mask for transparency (where heatmap is strong, show it; else show game)
-            # Simple weighted add:
-            # We want the heatmap to be transparent. 
-            # Note: heatmap_color is BGR.
-            
-            # Multiply heatmap intensity to make the transparent parts darker in the overlay
-            mask = heatmap_resized[..., None] # (H,W,1)
-            
-            # 0.0 = pure game, 1.0 = pure heatmap. Let's cap opacity at 0.6
-            opacity = 0.6
-            blended = (bg_bgr * (1.0 - (mask * opacity)) + heatmap_color * (mask * opacity)).astype(np.uint8)
-
-            # 5. Add Text (Action Name)
-            # Assuming cfg has ACTION_NAMES, otherwise use ID
-            act_name = str(action)
-            if "ACTION_NAMES" in cfg and action < len(cfg["ACTION_NAMES"]):
-                act_name = cfg["ACTION_NAMES"][action]
-            
-            cv2.putText(blended, f"Step: {step} | Action: {act_name}", (2, 10), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-
-            # 6. Upscale for video file
-            final_frame = cv2.resize(blended, video_size, interpolation=cv2.INTER_NEAREST)
-            out.write(final_frame)
-
-            # 7. Step Environment
-            obs, _, terminated, truncated, _ = env.step(action)
-            if terminated or truncated:
-                print("Episode finished early.")
-                break
-                
-    except KeyboardInterrupt:
-        print("Video recording interrupted by user.")
-    finally:
-        out.release()
-        print(f"Saved video to: {out_path}")
-'''
-def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_steps=1000):
-    print(f"--- Starting Video Recording for {algo_name} ---")
-    
-    # 1. Setup Video Writer
-    obs, _ = env.reset(seed=args.seed)
-    
-    # Get initial RGB frame to determine video dimensions
-    rgb_frame = _extract_ale_rgb(env)
-    if rgb_frame is None:
-        print("Error: Could not extract RGB frame for video.")
-        return
-
-    height, width, layers = rgb_frame.shape
-    # Upscale factor for better visibility
-    scale = 4
-    video_size = (width * scale, height * scale)
-    
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(out_path, fourcc, 30.0, video_size)
-
-    try:
-        for step in range(max_steps):
-            if step % 10 == 0:
-                print(f"Rendering frame {step}/{max_steps}...")
-
-            # 2. Compute Heatmap & Action based on Algo
-            # We use the existing sarfa functions which return (heatmap, best_action)
-            
-            # Prepare observation (uint8 check)
-            obs_in = obs
-            if obs_in.max() <= 1.0:
-                obs_in = (obs_in * 255).astype(np.uint8)
-            else:
-                obs_in = obs_in.astype(np.uint8)
-
-            heatmap = None
-            action = 0
-
-            if algo_name == "ddqn":
-                heatmap, action = sarfa_heatmap(
-                    agent, obs_in,
-                    patch=args.patch, stride=args.stride,
-                    fill_mode="mean",
-                    batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
-                    use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],
-                    clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
-                    use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"],
-                    flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
-                )
-            elif algo_name == "ppo":
-                heatmap, action = sarfa_heatmap_ppo(
-                    agent, device, obs_in,
-                    patch=args.patch, stride=args.stride,
-                    fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
-                    batch_size=cfg["sarfa"]["ppo"]["batch_size"]
-                )
-            elif algo_name == "sac":
-                heatmap, action = sarfa_heatmap_policy_logp(
-                    lambda x: sac_policy_logits(agent, x),
-                    device, obs_in,
-                    patch=args.patch, stride=args.stride
-                )
-
-            # 3. Process Heatmap for Video (using OpenCV for speed)
-            # Blur
-            heatmap = blur_heatmap(heatmap, k=7)
-            
-            # Normalize (0 to 1)
-            if heatmap.max() > 0:
-                heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
-            
-            # Thresholding (clean up low noise)
-            thr = np.mean(heatmap)
-            heatmap[heatmap < thr] = 0.0
-
-            # Resize heatmap to match RGB frame
-            heatmap_resized = cv2.resize(heatmap, (width, height), interpolation=cv2.INTER_NEAREST)
-            
-            # Convert to Color Map (0-255)
-            heatmap_uint8 = (heatmap_resized * 255).astype(np.uint8)
-            heatmap_color = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
-
-            # 4. Blend Images
-            # Get current RGB background
-            bg_rgb = _extract_ale_rgb(env)
-            # Convert RGB (Gym) to BGR (OpenCV)
-            bg_bgr = cv2.cvtColor(bg_rgb, cv2.COLOR_RGB2BGR)
-
-            # Create mask for transparency (where heatmap is strong, show it; else show game)
-            # Simple weighted add:
-            # We want the heatmap to be transparent. 
-            # Note: heatmap_color is BGR.
-            
-            # Multiply heatmap intensity to make the transparent parts darker in the overlay
-            mask = heatmap_resized[..., None] # (H,W,1)
-            
-            # 0.0 = pure game, 1.0 = pure heatmap. Let's cap opacity at 0.6
-            opacity = 0.6
-            blended = (bg_bgr * (1.0 - (mask * opacity)) + heatmap_color * (mask * opacity)).astype(np.uint8)
-
-            # 5. Add Text (Action Name)
-            # Assuming cfg has ACTION_NAMES, otherwise use ID
-            act_name = str(action)
-            if "ACTION_NAMES" in cfg and action < len(cfg["ACTION_NAMES"]):
-                act_name = cfg["ACTION_NAMES"][action]
-            
-            cv2.putText(blended, f"Step: {step} | Action: {act_name}", (2, 10), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.4, (255, 255, 255), 1)
-
-            # 6. Upscale for video file
-            final_frame = cv2.resize(blended, video_size, interpolation=cv2.INTER_NEAREST)
-            out.write(final_frame)
-
-            # 7. Step Environment
-            obs, _, terminated, truncated, _ = env.step(action)
-            if terminated or truncated:
-                print("Episode finished early.")
-                break
-                
-    except KeyboardInterrupt:
-        print("Video recording interrupted by user.")
-    finally:
-        out.release()
-        print(f"Saved video to: {out_path}")
-
-
-def record_sarfa_video_2(env, agent, algo_name, args, cfg, device, out_path, max_steps=1000):
-    print(f"--- Starting Agent-View Video for {algo_name} ---")
-    
-    obs, _ = env.reset(seed=args.seed)
-    
-    # --- HELPER: Converti l'Osservazione in Immagine Visibile ---
-    def obs_to_img(observation):
-        # L'osservazione può essere (H, W, C) o (C, H, W) e float o uint8
-        img = observation.copy()
-        
-        # 1. Se è un tensore Torch, portalo a Numpy
-        if hasattr(img, 'cpu'): img = img.cpu().numpy()
-        
-        # 2. Gestione Canali (Canali primi vs Canali ultimi)
-        # Se la dimensione piccola è all'inizio (es: 4, 84, 84), spostala alla fine
-        if img.shape[0] < img.shape[1] and img.shape[0] < img.shape[2]:
-            img = np.moveaxis(img, 0, -1)
-            
-        # 3. Gestione Frame Stacking (es. 4 frame impilati)
-        # Prendiamo il MAX sui canali o l'ultimo canale per vedere tutto
-        if img.shape[-1] > 3: 
-            # Spesso i canali sono frame temporali. Il max aiuta a vedere proiettili che lampeggiano.
-            img = np.max(img, axis=-1)
-            
-        # 4. Normalizzazione a 0-255
-        if img.max() <= 1.0 + 1e-5:
-            img = (img * 255).astype(np.uint8)
-        else:
-            img = img.astype(np.uint8)
-            
-        # 5. Se è diventato scala di grigi (H, W), fallo diventare RGB (H, W, 3)
-        if len(img.shape) == 2:
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-        elif len(img.shape) == 3 and img.shape[-1] == 1:
-            img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
-            
-        return img
-    # -----------------------------------------------------------
-
-    # Prepariamo dimensioni basandoci sull'osservazione
-    first_img = obs_to_img(obs)
-    h, w, _ = first_img.shape
-    
-    # Upscale spinto perché l'obs è piccola (di solito 84x84)
-    scale = 5
-    final_h, final_w = h * scale, w * scale
-    video_size = (final_w * 2, final_h) # Side by Side
-    
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(out_path, fourcc, 30.0, video_size)
-
-    try:
-        for step in range(max_steps):
-            if step % 50 == 0:
-                print(f"Rendering step {step}/{max_steps}...")
-
-            # 1. Prepara l'immagine "Reale" (Ciò che vede l'agente)
-            # Usiamo obs PRE-step per coerenza con l'azione decisa
-            agent_view_img = obs_to_img(obs)
-            
-            # Resize per il video
-            left_img = cv2.resize(agent_view_img, (final_w, final_h), interpolation=cv2.INTER_NEAREST)
-
-            # 2. Calcola Heatmap
-            obs_in = obs
-            # Assicuriamoci che obs_in sia nel formato giusto per sarfa_heatmap
-            if hasattr(obs_in, 'max') and obs_in.max() <= 1.0:
-                 obs_in_sarfa = (obs_in * 255).astype(np.uint8)
-            else:
-                 obs_in_sarfa = obs_in.astype(np.uint8)
-
-            heatmap = None
-            action = 0
-
-            # Logica Agenti
-            if algo_name == "ddqn":
-                heatmap, action = sarfa_heatmap(
-                    agent, obs_in_sarfa, patch=args.patch, stride=args.stride,
-                    fill_mode="mean", batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
-                    use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],
-                    clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
-                    use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"],
-                    flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
-                )
-            elif algo_name == "ppo":
-                heatmap, action = sarfa_heatmap_ppo(
-                    agent, device, obs_in_sarfa, patch=args.patch, stride=args.stride,
-                    fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
-                    batch_size=cfg["sarfa"]["ppo"]["batch_size"]
-                )
-            elif algo_name == "sac":
-                heatmap, action = sarfa_heatmap_policy_logp(
-                    lambda x: sac_policy_logits(agent, x),
-                    device, obs_in_sarfa, patch=args.patch, stride=args.stride
-                )
-
-            # 3. Elabora Lato Destro (Heatmap Overlay)
-            # Blur
-            heatmap = blur_heatmap(heatmap, k=5)
-            # Normalize
-            if heatmap.max() > 0:
-                heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
-            # Threshold
-            heatmap[heatmap < np.mean(heatmap)] = 0.0
-
-            # Resize Heatmap sulle dimensioni dell'obs originale (84x84)
-            heatmap_resized = cv2.resize(heatmap, (w, h), interpolation=cv2.INTER_NEAREST)
-            heatmap_uint8 = (heatmap_resized * 255).astype(np.uint8)
-            heatmap_color = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
-
-            # Sovrapposizione sull'immagine dell'agente (non sul render rgb_array)
-            # agent_view_img è già BGR perché obs_to_img lo converte
-            alpha = 0.6
-            mask = (heatmap_resized > 0)[..., None]
-            
-            overlay = agent_view_img.copy()
-            # Applica colore solo dove c'è heatmap
-            overlay = (overlay * (1 - mask * alpha) + heatmap_color * (mask * alpha)).astype(np.uint8)
-            
-            right_img = cv2.resize(overlay, (final_w, final_h), interpolation=cv2.INTER_NEAREST)
-
-            # 4. Unisci e Salva
-            combined = np.hstack([left_img, right_img])
-
-            # Info Testo
-            act_name = str(action)
-            if "ACTION_NAMES" in cfg and action < len(cfg["ACTION_NAMES"]):
-                act_name = cfg["ACTION_NAMES"][action]
-            
-            cv2.putText(combined, f"A: {act_name}", (10, 30), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
-            cv2.putText(combined, "Agent Input (Deflickered)", (10, final_h - 10), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150,150,150), 1)
-
-            out.write(combined)
-
-            # 5. Step
-            obs, _, terminated, truncated, _ = env.step(action)
-            if terminated or truncated:
-                print("Episode finished early.")
-                break
-
-    except KeyboardInterrupt:
-        print("Interrupted.")
-    finally:
-        out.release()
-        print(f"Saved Agent-View video to: {out_path}")
-
-def record_sarfa_video_3(env, agent, algo_name, args, cfg, device, out_path, max_steps=1000):
-    print(f"--- Starting High-Fidelity Video for {algo_name} ---")
-    
-    obs, _ = env.reset(seed=args.seed)
-    
-    # --- HELPER: Renderizza l'Osservazione (84x84) in Alta Qualità (HD) ---
-    def process_agent_view(observation, target_h, target_w):
-        # 1. Converti in Numpy (H, W) o (H, W, C)
-        img = observation.copy()
-        if hasattr(img, 'cpu'): img = img.cpu().numpy()
-        
-        # Gestione canali (se (C, H, W) -> (H, W, C))
-        if img.ndim == 3 and img.shape[0] < img.shape[1]:
-            img = np.moveaxis(img, 0, -1)
-            
-        # Frame Stacking: Prendiamo il MAX sui canali per vedere tutti i proiettili (anche quelli passati)
-        if img.ndim == 3:
-            img = np.max(img, axis=-1)
-            
-        # Normalizza 0-255
-        if img.max() <= 1.0 + 1e-5:
-            img = (img * 255).astype(np.uint8)
-        else:
-            img = img.astype(np.uint8)
-            
-        # L'obs originale è solitamente 84x84 (Quadrata)
-        # Il target è rettangolare (es. 320x420). 
-        # Se facciamo resize diretto, si deforma. Facciamo Resize + Letterbox (barre nere).
-        
-        # Rendiamo l'immagine nitida (Nearest Neighbor) scalandola
-        # L'Atari originale è circa 160x210. L'obs è 84x84.
-        # Scaliamo l'84x84 per riempire la larghezza del target
-        scale = target_w / img.shape[1]
-        new_h = int(img.shape[0] * scale)
-        
-        resized = cv2.resize(img, (target_w, new_h), interpolation=cv2.INTER_NEAREST)
-        
-        # Creiamo canvas nero della dimensione target
-        canvas = np.zeros((target_h, target_w), dtype=np.uint8)
-        
-        # Centriamo l'immagine ridimensionata nel canvas
-        y_offset = (target_h - new_h) // 2
-        # Clip per sicurezza se new_h > target_h
-        if y_offset < 0:
-            resized = resized[-y_offset : -y_offset+target_h, :]
-            y_offset = 0
-            
-        end_y = min(y_offset + resized.shape[0], target_h)
-        canvas[y_offset:end_y, :] = resized[:end_y-y_offset, :]
-        
-        # Convertiamo in BGR per video e applichiamo una tinta (Verde Matrix) per stile
-        canvas_bgr = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
-        # Tinta verde leggera per far capire che è la visione del computer
-        canvas_bgr[..., 0] = 0 # Azzera blu
-        canvas_bgr[..., 2] = 0 # Azzera rosso (lascia solo verde nel canale 1)
-        # O lasciamo in scala di grigi pulita:
-        canvas_bgr = cv2.cvtColor(canvas, cv2.COLOR_GRAY2BGR)
-
-        return canvas_bgr, (0, y_offset, target_w, resized.shape[0]) # Ritorniamo anche l'area valida
-    # --------------------------------------------------------------------------
-
-    # Setup dimensioni Video
-    # Sinistra: Gioco Reale (da render). Destra: Agente (da obs).
-    # Usiamo dimensioni fisse standard HD verticale per chiarezza
-    W_PANEL = 320
-    H_PANEL = 420
-    
-    video_size = (W_PANEL * 2, H_PANEL)
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(out_path, fourcc, 30.0, video_size)
-
-    # Buffer per render RGB (Sinistra)
-    try:
-        dummy_render = env.render()
-        if isinstance(dummy_render, list): dummy_render = dummy_render[0]
-    except:
-        dummy_render = np.zeros((210, 160, 3), dtype=np.uint8)
-        
-    render_buffer = [dummy_render] * 3 # Buffer di 3 frame per deflicker lato sinistro
-
-    try:
-        for step in range(max_steps):
-            if step % 50 == 0:
-                print(f"Rendering frame {step}/{max_steps}...")
-
-            # === LATO SINISTRO: GIOCO REALE ===
-            try:
-                raw_render = env.render()
-                if isinstance(raw_render, list): raw_render = raw_render[0]
-            except:
-                raw_render = np.zeros((210, 160, 3), dtype=np.uint8)
-            
-            # Aggiorna buffer e prendi il MAX (Deflicker visivo per umani)
-            render_buffer.append(raw_render)
-            render_buffer.pop(0)
-            clean_render = np.max(np.stack(render_buffer), axis=0)
-            
-            clean_render_bgr = cv2.cvtColor(clean_render, cv2.COLOR_RGB2BGR)
-            left_img = cv2.resize(clean_render_bgr, (W_PANEL, H_PANEL), interpolation=cv2.INTER_NEAREST)
-
-            # === LATO DESTRO: VISIONE AGENTE + HEATMAP ===
-            # 1. Processa Obs per renderlo bello
-            agent_img, valid_area = process_agent_view(obs, H_PANEL, W_PANEL)
-            
-            # 2. Calcola Heatmap SARFA
-            obs_in = obs
-            if hasattr(obs_in, 'max') and obs_in.max() <= 1.0:
-                 obs_in_sarfa = (obs_in * 255).astype(np.uint8)
-            else:
-                 obs_in_sarfa = obs_in.astype(np.uint8)
-
-            heatmap = None
-            action = 0
-            
-            # (Logica Agenti standard...)
-            if algo_name == "ddqn":
-                heatmap, action = sarfa_heatmap(
-                    agent, obs_in_sarfa, patch=args.patch, stride=args.stride,
-                    fill_mode="mean", batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
-                    use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],
-                    clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
-                    use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"],
-                    flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
-                )
-            elif algo_name == "ppo":
-                heatmap, action = sarfa_heatmap_ppo(
-                    agent, device, obs_in_sarfa, patch=args.patch, stride=args.stride,
-                    fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
-                    batch_size=cfg["sarfa"]["ppo"]["batch_size"]
-                )
-            elif algo_name == "sac":
-                heatmap, action = sarfa_heatmap_policy_logp(
-                    lambda x: sac_policy_logits(agent, x),
-                    device, obs_in_sarfa, patch=args.patch, stride=args.stride
-                )
-
-            # 3. Applica Heatmap SOLO sull'area valida dell'immagine agente
-            # Blur
-            heatmap = blur_heatmap(heatmap, k=5)
-            # Normalize
-            if heatmap.max() > 0:
-                heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
-            
-            heatmap[heatmap < np.mean(heatmap)] = 0.0
-
-            # L'area valida dove c'è il gioco dentro agent_img
-            x_off, y_off, w_valid, h_valid = valid_area
-            
-            # Resiziamo la heatmap per coincidere con l'area di gioco ridimensionata, non tutto il pannello
-            heatmap_resized = cv2.resize(heatmap, (w_valid, h_valid), interpolation=cv2.INTER_NEAREST)
-            heatmap_uint8 = (heatmap_resized * 255).astype(np.uint8)
-            heatmap_color = cv2.applyColorMap(heatmap_uint8, cv2.COLORMAP_JET)
-
-            # Estraiamo la parte di immagine agente dove sovrapporre
-            roi = agent_img[y_off:y_off+h_valid, x_off:x_off+w_valid]
-            
-            # Blend
-            alpha = 0.6
-            mask = (heatmap_resized > 0)[..., None]
-            roi_blended = (roi * (1 - mask * alpha) + heatmap_color * (mask * alpha)).astype(np.uint8)
-            
-            # Rimettiamo la ROI nel pannello destro
-            agent_img[y_off:y_off+h_valid, x_off:x_off+w_valid] = roi_blended
-            right_img = agent_img
-
-            # === UNIONE ===
-            combined = np.hstack([left_img, right_img])
-
-            # Testo
-            act_name = str(action)
-            if "ACTION_NAMES" in cfg and action < len(cfg["ACTION_NAMES"]):
-                act_name = cfg["ACTION_NAMES"][action]
-            
-            # Barra separatrice bianca
-            cv2.line(combined, (W_PANEL, 0), (W_PANEL, H_PANEL), (255, 255, 255), 2)
-            
-            # Info
-            cv2.putText(combined, "Game (Human View)", (10, H_PANEL - 10), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200,200,200), 1)
-            cv2.putText(combined, "Agent Logic (Bullets Visible)", (W_PANEL + 10, H_PANEL - 10), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200,200,200), 1)
-            cv2.putText(combined, f"Action: {act_name}", (10, 30), 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
-
-            out.write(combined)
-
-            # Step
-            obs, _, terminated, truncated, _ = env.step(action)
-            if terminated or truncated:
-                print("Episode finished early.")
-                break
-
-    except KeyboardInterrupt:
-        print("Interrupted.")
-    finally:
-        out.release()
-        print(f"Saved High-Fidelity video to: {out_path}")
-        
-def record_sarfa_video_4(env, agent, algo_name, args, cfg, device, out_path, max_steps=None):
-    # max_steps is now ignored or used only as a safety limit (e.g. 100k)
-    print(f"--- Starting FULL EPISODE Video for {algo_name} ---")
-    print("Note: This will run until Game Over. Press Ctrl+C to stop early.")
-    
-    # --- Helper: Robust RGB Extraction ---
-    def _extract_ale_rgb(env):
+def _extract_ale_rgb(env):
         try:
             frame = env.render()
             if isinstance(frame, list): frame = frame[0]
@@ -1121,8 +492,7 @@ def record_sarfa_video_4(env, agent, algo_name, args, cfg, device, out_path, max
         except:
             return np.zeros((210, 160, 3), dtype=np.uint8)
 
-    # --- Helper: Agent View (Max Projected) ---
-    def _get_agent_obs_view(observation):
+def _get_agent_obs_view(observation):
         img = observation.copy()
         if hasattr(img, 'cpu'): img = img.cpu().numpy()
         if img.ndim == 3 and img.shape[0] < img.shape[1]: 
@@ -1133,9 +503,13 @@ def record_sarfa_video_4(env, agent, algo_name, args, cfg, device, out_path, max
             img = (img * 255).astype(np.uint8)
         else:
             img = img.astype(np.uint8)
-        return img 
-    # ---------------------------------------------------------
-
+        return img
+        
+def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_steps=None):
+    
+    print(f"--- Starting FULL EPISODE Video for {algo_name} ---")
+    print("Note: This will run until Game Over. Press Ctrl+C to stop early.")
+    
     obs, _ = env.reset(seed=args.seed)
     
     # Setup Dimensions
@@ -1160,7 +534,6 @@ def record_sarfa_video_4(env, agent, algo_name, args, cfg, device, out_path, max
     step = 0
 
     try:
-        # CHANGED: Loop forever until done
         while True:
             if step % 50 == 0:
                 print(f"Rendering frame {step}...")
@@ -1188,7 +561,7 @@ def record_sarfa_video_4(env, agent, algo_name, args, cfg, device, out_path, max
             action = 0
 
             if algo_name == "ddqn":
-                heatmap, action = sarfa_heatmap(
+                heatmap, action = sarfa_heatmap_DDQN(
                     agent, obs_in_sarfa, patch=args.patch, stride=args.stride,
                     fill_mode="mean", batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
                     use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],
@@ -1197,13 +570,13 @@ def record_sarfa_video_4(env, agent, algo_name, args, cfg, device, out_path, max
                     flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
                 )
             elif algo_name == "ppo":
-                heatmap, action = sarfa_heatmap_ppo(
+                heatmap, action = sarfa_heatmap_PPO(
                     agent, device, obs_in_sarfa, patch=args.patch, stride=args.stride,
                     fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
                     batch_size=cfg["sarfa"]["ppo"]["batch_size"]
                 )
             elif algo_name == "sac":
-                heatmap, action = sarfa_heatmap_policy_logp(
+                heatmap, action = sarfa_heatmap_SAC(
                     lambda x: sac_policy_logits(agent, x),
                     device, obs_in_sarfa, patch=args.patch, stride=args.stride
                 )
@@ -1255,7 +628,6 @@ def record_sarfa_video_4(env, agent, algo_name, args, cfg, device, out_path, max
 
             out.write(full_canvas)
 
-            # --- 5. STEP ---
             obs, _, terminated, truncated, _ = env.step(action)
             step += 1
             
@@ -1269,197 +641,6 @@ def record_sarfa_video_4(env, agent, algo_name, args, cfg, device, out_path, max
     finally:
         out.release()
         print(f"Saved Full Episode video to: {out_path}")
-
-def record_sarfa_video_5(env, agent, algo_name, args, cfg, device, out_path, max_steps=1000):
-
-    print(f"--- Starting Final Video (Clean Score + More Heatmap) for {algo_name} ---")
-    
-    # --- Helper: Robust RGB Extraction ---
-    def _extract_ale_rgb(env):
-        try:
-            frame = env.render()
-            if isinstance(frame, list): frame = frame[0]
-            if frame is not None and frame.shape[-1] == 3: return frame
-        except:
-            pass
-        try:
-            return env.unwrapped.ale.getScreenRGB()
-        except:
-            return np.zeros((210, 160, 3), dtype=np.uint8)
-
-    # --- Helper: Agent View (Max Projected for Bullets) ---
-    def _get_agent_obs_view(observation):
-        img = observation.copy()
-        if hasattr(img, 'cpu'): img = img.cpu().numpy()
-        if img.ndim == 3 and img.shape[0] < img.shape[1]: 
-            img = np.moveaxis(img, 0, -1)
-            
-        # Max projection to see bullets from all stacked frames
-        if img.ndim == 3:
-            img = np.max(img, axis=-1)
-            
-        if img.max() <= 1.0 + 1e-5:
-            img = (img * 255).astype(np.uint8)
-        else:
-            img = img.astype(np.uint8)
-        return img 
-    # ---------------------------------------------------------
-
-    obs, _ = env.reset(seed=args.seed)
-    
-    # 1. Setup Dimensions
-    rgb_ref = _extract_ale_rgb(env)
-    h_rgb, w_rgb, _ = rgb_ref.shape # ~210x160
-    
-    obs_ref = _get_agent_obs_view(obs)
-    h_obs, w_obs = obs_ref.shape    # ~84x84
-    
-    # Target Height (Upscale x2)
-    TARGET_H = h_rgb * 2 
-    
-    # Dedicated Footer for Text (so we don't cover the Score)
-    FOOTER_H = 60
-    FINAL_H = TARGET_H + FOOTER_H
-    
-    # Widths
-    W_LEFT = w_rgb * 2
-    W_RIGHT = w_obs * 5 # Upscale 84 -> 420 approx
-    TOTAL_W = W_LEFT + W_RIGHT
-    
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(out_path, fourcc, 30.0, (TOTAL_W, FINAL_H))
-
-    # Buffer for Left Side smoothness
-    render_buffer = []
-
-    try:
-        for step in range(max_steps):
-            if step % 50 == 0:
-                print(f"Rendering frame {step}/{max_steps}...")
-
-            # --- LEFT PANEL (RGB) ---
-            raw_rgb = _extract_ale_rgb(env)
-            render_buffer.append(raw_rgb)
-            if len(render_buffer) > 2: render_buffer.pop(0)
-            stable_rgb = np.max(np.stack(render_buffer), axis=0)
-            
-            bg_left = cv2.cvtColor(stable_rgb, cv2.COLOR_RGB2BGR)
-
-            # --- RIGHT PANEL (Agent) ---
-            raw_obs_img = _get_agent_obs_view(obs)
-            bg_right_gray = cv2.resize(raw_obs_img, (W_RIGHT, TARGET_H), interpolation=cv2.INTER_NEAREST)
-            bg_right = cv2.cvtColor(bg_right_gray, cv2.COLOR_GRAY2BGR)
-
-            # --- SARFA CALC ---
-            obs_in = obs
-            if hasattr(obs_in, 'max') and obs_in.max() <= 1.0:
-                 obs_in_sarfa = (obs_in * 255).astype(np.uint8)
-            else:
-                 obs_in_sarfa = obs_in.astype(np.uint8)
-
-            heatmap = None
-            action = 0
-
-            if algo_name == "ddqn":
-                heatmap, action = sarfa_heatmap(
-                    agent, obs_in_sarfa, patch=args.patch, stride=args.stride,
-                    fill_mode="mean", batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
-                    use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],
-                    clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
-                    use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"],
-                    flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
-                )
-            elif algo_name == "ppo":
-                heatmap, action = sarfa_heatmap_ppo(
-                    agent, device, obs_in_sarfa, patch=args.patch, stride=args.stride,
-                    fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
-                    batch_size=cfg["sarfa"]["ppo"]["batch_size"]
-                )
-            elif algo_name == "sac":
-                heatmap, action = sarfa_heatmap_policy_logp(
-                    lambda x: sac_policy_logits(agent, x),
-                    device, obs_in_sarfa, patch=args.patch, stride=args.stride
-                )
-
-            # --- HEATMAP PROCESSING (Increased Visibility) ---
-            heatmap = blur_heatmap(heatmap, k=5)
-            if heatmap.max() > 0:
-                heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
-            
-            # *** FIX: Show MORE heatmap ***
-            # Previously: heatmap[heatmap < np.mean(heatmap)] = 0.0
-            # Now: Only remove very low noise (bottom 10%)
-            heatmap[heatmap < 0.1] = 0.0
-
-            # Resize heatmaps
-            hm_left_small = cv2.resize(heatmap, (w_rgb, h_rgb), interpolation=cv2.INTER_NEAREST)
-            hm_left_color = cv2.applyColorMap((hm_left_small * 255).astype(np.uint8), cv2.COLORMAP_JET)
-            
-            hm_right_large = cv2.resize(heatmap, (W_RIGHT, TARGET_H), interpolation=cv2.INTER_NEAREST)
-            hm_right_color = cv2.applyColorMap((hm_right_large * 255).astype(np.uint8), cv2.COLORMAP_JET)
-
-            # --- BLENDING ---
-            # Left
-            mask_l = hm_left_small[..., None]
-            # Use 0.5 opacity so game is still very visible
-            final_left_small = (bg_left * (1.0 - mask_l*0.5) + hm_left_color * (mask_l*0.5)).astype(np.uint8)
-            final_left = cv2.resize(final_left_small, (W_LEFT, TARGET_H), interpolation=cv2.INTER_NEAREST)
-
-            # Right (Agent View)
-            # Smart opacity: if pixels are bright (bullets), make heatmap transparent
-            mask_r = cv2.resize(heatmap, (W_RIGHT, TARGET_H), interpolation=cv2.INTER_NEAREST)[..., None]
-            
-            # Identify bullets in the gray image
-            is_bullet = bg_right_gray > 40
-            
-            # Alpha map: default 0.6 (strong heatmap), but 0.1 on bullets
-            alpha_map = np.full((TARGET_H, W_RIGHT), 0.6)
-            alpha_map[is_bullet] = 0.1
-            alpha_map = alpha_map[..., None]
-            
-            # Blend
-            final_right = (bg_right * (1.0 - mask_r * alpha_map) + hm_right_color * (mask_r * alpha_map)).astype(np.uint8)
-
-            # --- COMPOSITING ---
-            # Create full canvas with Footer
-            full_canvas = np.zeros((FINAL_H, TOTAL_W, 3), dtype=np.uint8)
-            
-            # Place images
-            full_canvas[0:TARGET_H, 0:W_LEFT] = final_left
-            full_canvas[0:TARGET_H, W_LEFT:TOTAL_W] = final_right
-            
-            # Draw Divider
-            cv2.line(full_canvas, (W_LEFT, 0), (W_LEFT, TARGET_H), (255, 255, 255), 2)
-            
-            # --- FOOTER TEXT (Clean Score) ---
-            act_name = str(action)
-            if "ACTION_NAMES" in cfg and action < len(cfg["ACTION_NAMES"]):
-                act_name = cfg["ACTION_NAMES"][action]
-
-            # Text properties
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            y_text = TARGET_H + 40 # Position in footer
-            
-            cv2.putText(full_canvas, f"Step: {step}", (20, y_text), font, 0.8, (200, 200, 200), 2)
-            cv2.putText(full_canvas, f"Action: {act_name}", (W_LEFT + 20, y_text), font, 0.8, (0, 255, 0), 2)
-            
-            # Labels
-            cv2.putText(full_canvas, "Render", (W_LEFT - 100, TARGET_H - 10), font, 0.6, (255,255,255), 2)
-            cv2.putText(full_canvas, "Agent+SARFA", (TOTAL_W - 160, TARGET_H - 10), font, 0.6, (255,255,255), 2)
-
-            out.write(full_canvas)
-
-            # Step
-            obs, _, terminated, truncated, _ = env.step(action)
-            if terminated or truncated:
-                print("Episode finished early.")
-                break
-
-    except KeyboardInterrupt:
-        print("Interrupted.")
-    finally:
-        out.release()
-        print(f"Saved video to: {out_path}")
 
 def main():
 
@@ -1479,8 +660,6 @@ def main():
                     help="Environment steps (after reset) at which to take SARFA snapshots (early/mid/late).")
     parser.add_argument("--snap_names", type=str, nargs="+", default=["early", "mid", "late"],
                     help="Names for snapshots; must match snap_steps length.")
-
-    # === NEW ARGUMENTS ===
     parser.add_argument("--video", action="store_true", help="If set, record a video instead of snapshots.")
     parser.add_argument("--video_length", type=int, default=200, help="Number of frames to record.")
     args = parser.parse_args()
@@ -1529,7 +708,7 @@ def main():
                 print("Loading DDQN...")
                 agent = DDQN_Agent(env, obs_shape[0], obs_shape, n_actions, device, double_dqn=True)
                 agent.load(args.ddqn_model)
-                record_sarfa_video_4(env, agent, "ddqn", args, cfg, device, video_path, args.video_length)
+                record_sarfa_video(env, agent, "ddqn", args, cfg, device, video_path, args.video_length)
 
             elif algo == "ppo":
                 print("Loading PPO...")
@@ -1537,22 +716,18 @@ def main():
                 agent = ActorCriticCNN(in_channels=cfg["sarfa"]["ppo"]["in_channels"], n_actions=n_actions).to(device)
                 agent.load_state_dict(ckpt["net"])
                 agent.eval()
-                record_sarfa_video_4(env, agent, "ppo", args, cfg, device, video_path, args.video_length)
+                record_sarfa_video(env, agent, "ppo", args, cfg, device, video_path, args.video_length)
 
             elif algo == "sac":
                 print("Loading SAC...")
                 agent = SACDiscrete_Agent(obs_shape=obs_shape, n_actions=n_actions, device=device, env_id=cfg["env"]["id"])
                 agent.load(args.sac_model)
-                record_sarfa_video_4(env, agent, "sac", args, cfg, device, video_path, args.video_length)
+                record_sarfa_video(env, agent, "sac", args, cfg, device, video_path, args.video_length)
                 
         env.close()
-        return  # Exit after video to avoid running snapshot logic
-    # ==============================
-
-    # always run all 3 algos when doing snapshot analysis
+        return
+  
     algos_to_run = ["ddqn", "ppo", "sac"] if args.algo in ["all"] else [args.algo]
-
-    # store paths for final 3x3 grid: grid_paths[snap_name][algo] = png_path
     grid_paths = {}
 
 
@@ -1563,13 +738,12 @@ def main():
         saved_paths = []
 
         for algo in algos_to_run:
-            # --- your existing DDQN / PPO / SAC blocks ---
             if algo == "ddqn":
                 print("Using DDQN agent for SARFA...")
                 agent = DDQN_Agent(env, obs_shape[0], obs_shape, n_actions, device, double_dqn=True)
                 agent.load(args.ddqn_model)
 
-                heat, action = sarfa_heatmap(
+                heat, action = sarfa_heatmap_DDQN(
                     agent, obs,
                     patch=args.patch,
                     stride=args.stride, 
@@ -1589,7 +763,7 @@ def main():
                 actor_critic.load_state_dict(ckpt["net"])
                 actor_critic.eval()
 
-                heat, action = sarfa_heatmap_ppo(
+                heat, action = sarfa_heatmap_PPO(
                     actor_critic, device, obs,
                     patch=args.patch, stride=args.stride,
                     fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
@@ -1601,7 +775,7 @@ def main():
                 agent = SACDiscrete_Agent(obs_shape=obs.shape, n_actions=n_actions, device=device, env_id=cfg["env"]["id"])
                 agent.load(args.sac_model)
 
-                heat, action = sarfa_heatmap_policy_logp(
+                heat, action = sarfa_heatmap_SAC(
                     lambda x: sac_policy_logits(agent, x),
                     device,
                     obs,
@@ -1609,7 +783,6 @@ def main():
                     stride=args.stride
                 )
 
-            # --- your existing visualization code, but use rgb_bg from this snapshot ---
             heat_vis = blur_heatmap(heat, k=7)
             if heat_vis.max() > 0:
                 heat_vis = (heat_vis - heat_vis.min()) / (heat_vis.max() - heat_vis.min() + 1e-8)
@@ -1650,7 +823,6 @@ def main():
             _save_side_by_side(saved_paths, combo_path)
             print(f"[SARFA] Saved side-by-side: {combo_path}")
 
-        # final 3x3 grid
         # final 3x3 grid
         # if user asked for all, save a single 3x3 grid (early/mid/late x ddqn/ppo/sac)
         if args.algo == "all":
