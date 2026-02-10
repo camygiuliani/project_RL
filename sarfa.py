@@ -627,7 +627,7 @@ def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_s
     try:
              while True:
                         if step % 50 == 0:
-                                 print(f"Rendering frame {step}...")
+                                 print(f"Rendering frame {step}...",end="\r")
 
             
 
@@ -680,7 +680,7 @@ def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_s
 
                             # overlay NON distruttivo: contorni (bullets restano)
                             #frame = overlay_sarfa_contours(frame, heatmap, thr=0.25)
-                            frame = overlay_sarfa_colormap(frame, heatmap, thr=0.15, alpha_max=0.35, preserve_bright=True)
+                            frame = overlay_sarfa_colormap(frame, heatmap, thr=0.30, alpha_max=0.45, preserve_bright=True)
 
 
                             # upscale for readability
@@ -693,6 +693,7 @@ def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_s
 
                         if terminated or truncated:
                             print(f"Episode finished at step {step}.")
+                            print(f" Video saved at {out_path}")
                             break
 
     except KeyboardInterrupt:
