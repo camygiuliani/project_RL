@@ -1,4 +1,3 @@
-# sac_discrete.py
 from datetime import datetime
 import os
 from dataclasses import dataclass
