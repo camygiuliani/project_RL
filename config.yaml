@@ -118,6 +118,7 @@ ACTION_NAMES:
 
 
 robustness:
+  outdir: ./robustness_outputs
   seed: 123
   n_episodes: 10
   n_episodes_render: 3

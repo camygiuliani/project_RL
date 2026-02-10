@@ -43,7 +43,7 @@ sudo apt install -y pulseaudio
 Add vectorized environment on PPO and DDQN for better training 
 
 ============= 9 Feb
-- allenare sac 6 ore
+- allenare sac 6 ore [non funge]
 - capire se si può fixare video
 - analisi stabilità?
 
