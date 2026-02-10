@@ -55,13 +55,12 @@ class SACDiscrete_Agent:
 
         if obs_shape[0] == 4:
             C = obs_shape[0]
-        # Se shape è (84, 84, 4) -> C=4 a indice 2
         elif obs_shape[-1] == 4:
             C = obs_shape[-1]
         else:
             raise ValueError(f"Formato osservazione non supportato: {obs_shape}")
 
-        self.target_entropy = 0.3 * np.log(n_actions)
+        self.target_entropy = 0.7 * np.log(n_actions)
         self.log_alpha = torch.zeros(1, requires_grad=True, device=device)
         
         # Networks
@@ -90,9 +89,6 @@ class SACDiscrete_Agent:
         self.total_updates = 0
 
        
-
-
-
     def preprocess_obs(self, obs_uint8):
         x = torch.as_tensor(obs_uint8, device=self.device).float()
 
@@ -181,8 +177,10 @@ class SACDiscrete_Agent:
         q2_sa = q2_all.gather(1, actions.view(-1, 1)).squeeze(1)
 
         #1.3) minimize MSE loss 
-        q1_loss = F.mse_loss(q1_sa, y)
-        q2_loss = F.mse_loss(q2_sa, y)
+        #q1_loss = F.mse_loss(q1_sa, y)
+        #q2_loss = F.mse_loss(q2_sa, y)
+        q1_loss = F.smooth_l1_loss(q1_sa, y)
+        q2_loss = F.smooth_l1_loss(q2_sa, y)
 
         self.q1_opt.zero_grad(set_to_none=True)
         q1_loss.backward()
@@ -216,7 +214,7 @@ class SACDiscrete_Agent:
 
         #clamping log_alpha for stability and to prevent extreme values
         with torch.no_grad():
-            self.log_alpha.clamp_(min=-5.0, max=2.0)
+            self.log_alpha.clamp_(min=-5.0, max=0.0)
    
         alpha_loss = (self.log_alpha * (entropy - self.target_entropy).detach()).mean()
         self.alpha_opt.zero_grad()

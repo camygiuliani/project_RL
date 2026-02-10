@@ -5,17 +5,13 @@ import numpy as np
 from tqdm import tqdm, trange
 from utils import load_config
 from wrappers import make_env, make_env_eval
-
-
-
+import torch
 import os
 import csv
 import math
 import argparse
 from dataclasses import dataclass, asdict
 from typing import Callable, Dict, List, Optional, Tuple
-
-import numpy as np
 
 # matplotlib optional
 try:
@@ -297,10 +293,6 @@ def plot_summary(summary: Dict[str, Dict[str, float]], outpath: str, title: str)
     plt.close()
 
 
-# =========================
-# Algo loaders (your code)
-# =========================
-
 def build_policy(algo: str, env_id: str, ckpt: str, device: str):
     """
     Returns policy_fn(obs)->action and a short display name.
@@ -309,7 +301,6 @@ def build_policy(algo: str, env_id: str, ckpt: str, device: str):
       - ppo.PPO_Agent.act(obs_batch)-> (actions, logps, values), load(path)
       - sac.SACDiscrete_Agent.act(obs, deterministic=True), load(path)
     """
-    import torch
 
     dev = torch.device(device)
     obs_shape = (84, 84, 4)  # your wrappers output :contentReference[oaicite:3]{index=3}
