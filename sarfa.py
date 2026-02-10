@@ -10,7 +10,7 @@ from datetime import datetime
 
 
 from utils import load_config
-from wrappers import make_env
+from wrappers import make_env_eval
 from ppo import ActorCriticCNN
 from ddqn import DDQN_Agent,DDQNCNN
 from sac import SACDiscrete_Agent
@@ -390,7 +390,7 @@ def _save_side_by_side(image_paths, out_path):
     combo = cv2.hconcat(resized)
     cv2.imwrite(out_path, combo)
 
-def _extract_ale_rgb(env):
+""" def _extract_ale_rgb(env):
     # Try to get ALE screen RGB through wrappers
     ale = None
     current_env = env
@@ -413,6 +413,38 @@ def _extract_ale_rgb(env):
         return env.render()
     except Exception:
         return None
+ """
+def _extract_ale_rgb(env):
+    """
+    Returns the true game RGB frame (210x160x3) from ALE if possible,
+    otherwise falls back to env.render().
+    This avoids "double bullets"/ghosting artifacts.
+    """
+    # Unwrap to base env that has ALE
+    e = env
+    while hasattr(e, "env"):
+        if hasattr(e, "ale"):
+            break
+        e = e.env
+
+    # Try ALE first (most reliable for Atari details like bullets)
+    try:
+        if hasattr(e, "ale") and e.ale is not None:
+            frame = e.ale.getScreenRGB()
+            if frame is not None:
+                return frame
+    except Exception:
+        pass
+
+    # Fallback: gym render
+    try:
+        frame = env.render()
+        if isinstance(frame, list):
+            frame = frame[0]
+        return frame
+    except Exception:
+        return None
+
 
 
 def _collect_snapshots(env, seed, snap_steps):
@@ -480,7 +512,7 @@ def _save_grid_3x3(grid_paths, snap_order, algo_order, out_path):
     plt.savefig(out_path, dpi=200, bbox_inches="tight", pad_inches=0.2)
     plt.close()
 
-def _extract_ale_rgb(env):
+""" def _extract_ale_rgb(env):
         try:
             frame = env.render()
             if isinstance(frame, list): frame = frame[0]
@@ -489,8 +521,9 @@ def _extract_ale_rgb(env):
             pass
         try:
             return env.unwrapped.ale.getScreenRGB()
-        except:
+        except: 
             return np.zeros((210, 160, 3), dtype=np.uint8)
+"""
 
 def _get_agent_obs_view(observation):
         img = observation.copy()
@@ -504,6 +537,65 @@ def _get_agent_obs_view(observation):
         else:
             img = img.astype(np.uint8)
         return img
+
+def overlay_sarfa_contours(frame_bgr, heatmap_84, thr=0.25):
+    """
+    frame_bgr: (210,160,3)
+    heatmap_84: (84,84) in [0,1]
+    Draws contours of salient regions so bullets/HUD remain visible.
+    """
+    h, w = frame_bgr.shape[:2]
+    hm = cv2.resize(heatmap_84, (w, h), interpolation=cv2.INTER_NEAREST)
+    mask = (hm >= thr).astype(np.uint8) * 255
+
+    # clean small noise
+    mask = cv2.medianBlur(mask, 3)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+
+    out = frame_bgr.copy()
+    # draw thin contours (non invasivo)
+    cv2.drawContours(out, contours, -1, (0, 255, 255), 2)  # giallo
+    return out
+
+def overlay_sarfa_colormap(frame_bgr, heatmap_84, thr=0.15, alpha_max=0.45, preserve_bright=True):
+    """
+    frame_bgr: (H,W,3) uint8 BGR
+    heatmap_84: (84,84) float in [0,1] (o simile)
+    """
+    h, w = frame_bgr.shape[:2]
+
+    # resize heatmap to frame size
+    hm = cv2.resize(heatmap_84.astype(np.float32), (w, h), interpolation=cv2.INTER_NEAREST)
+    hm = np.clip(hm, 0.0, 1.0)
+
+    # mask 2D: dove applicare overlay
+    mask2d = (hm >= thr).astype(np.float32)  # 0/1
+    mask = mask2d[..., None]                 # (H,W,1)
+
+    # colormap
+    hm_u8 = (hm * 255).astype(np.uint8)
+    cmap = cv2.applyColorMap(hm_u8, cv2.COLORMAP_TURBO).astype(np.float32)  # (H,W,3)
+
+    # alpha per pixel (H,W,1)
+    alpha = (alpha_max * hm).astype(np.float32)[..., None]
+
+    base = frame_bgr.astype(np.float32)
+
+    # blend: base*(1-a) + cmap*a, ma SOLO dove mask=1
+    blended = base * (1.0 - alpha) + cmap * alpha
+    out = base * (1.0 - mask) + blended * mask
+    out = np.clip(out, 0, 255).astype(np.uint8)
+
+    # preserve bright pixels (bullets/HUD)
+    if preserve_bright:
+        gray = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2GRAY)
+        bright = gray > 200
+        out[bright] = frame_bgr[bright]
+
+    return out
+
+
         
 def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_steps=None):
     
@@ -512,135 +604,101 @@ def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_s
     
     obs, _ = env.reset(seed=args.seed)
     
-    # Setup Dimensions
     rgb_ref = _extract_ale_rgb(env)
-    h_rgb, w_rgb, _ = rgb_ref.shape 
-    
-    obs_ref = _get_agent_obs_view(obs)
-    h_obs, w_obs = obs_ref.shape    
-    
-    TARGET_H = h_rgb * 2 
-    FOOTER_H = 60
-    FINAL_H = TARGET_H + FOOTER_H
-    
-    W_LEFT = w_rgb * 2
-    W_RIGHT = w_obs * 5 
-    TOTAL_W = W_LEFT + W_RIGHT
-    
+    h_rgb, w_rgb, _ = rgb_ref.shape  # 210x160
+
+    SCALE = 4
+    OUT_W, OUT_H = w_rgb * SCALE, h_rgb * SCALE  # 640x840
+
     fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(out_path, fourcc, 30.0, (TOTAL_W, FINAL_H))
+    out = cv2.VideoWriter(out_path, fourcc, 30.0, (OUT_W, OUT_H))
+
 
     render_buffer = []
     step = 0
 
+    
+    ACTION_REPEAT = 4  # simula frame_skip=4 ma salvando OGNI frame
+
+    step = 0
+    terminated = False
+    truncated = False
+
     try:
-        while True:
-            if step % 50 == 0:
-                print(f"Rendering frame {step}...")
+             while True:
+                        if step % 50 == 0:
+                                 print(f"Rendering frame {step}...")
 
-            # --- 1. LEFT PANEL (RGB) ---
-            raw_rgb = _extract_ale_rgb(env)
-            render_buffer.append(raw_rgb)
-            if len(render_buffer) > 2: render_buffer.pop(0)
-            stable_rgb = np.max(np.stack(render_buffer), axis=0)
-            bg_left = cv2.cvtColor(stable_rgb, cv2.COLOR_RGB2BGR)
-
-            # --- 2. RIGHT PANEL (Agent) ---
-            raw_obs_img = _get_agent_obs_view(obs)
-            bg_right_gray = cv2.resize(raw_obs_img, (W_RIGHT, TARGET_H), interpolation=cv2.INTER_NEAREST)
-            bg_right = cv2.cvtColor(bg_right_gray, cv2.COLOR_GRAY2BGR)
-
-            # --- 3. SARFA CALC ---
-            obs_in = obs
-            if hasattr(obs_in, 'max') and obs_in.max() <= 1.0:
-                 obs_in_sarfa = (obs_in * 255).astype(np.uint8)
-            else:
-                 obs_in_sarfa = obs_in.astype(np.uint8)
-
-            heatmap = None
-            action = 0
-
-            if algo_name == "ddqn":
-                heatmap, action = sarfa_heatmap_DDQN(
-                    agent, obs_in_sarfa, patch=args.patch, stride=args.stride,
-                    fill_mode="mean", batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
-                    use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],
-                    clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
-                    use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"],
-                    flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
-                )
-            elif algo_name == "ppo":
-                heatmap, action = sarfa_heatmap_PPO(
-                    agent, device, obs_in_sarfa, patch=args.patch, stride=args.stride,
-                    fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
-                    batch_size=cfg["sarfa"]["ppo"]["batch_size"]
-                )
-            elif algo_name == "sac":
-                heatmap, action = sarfa_heatmap_SAC(
-                    lambda x: sac_policy_logits(agent, x),
-                    device, obs_in_sarfa, patch=args.patch, stride=args.stride
-                )
-
-            # --- 4. VISUALS ---
-            heatmap = blur_heatmap(heatmap, k=5)
-            if heatmap.max() > 0:
-                heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
             
-            heatmap[heatmap < 0.1] = 0.0 # Low threshold to show more
 
-            # Resize heatmaps
-            hm_left_small = cv2.resize(heatmap, (w_rgb, h_rgb), interpolation=cv2.INTER_NEAREST)
-            hm_left_color = cv2.applyColorMap((hm_left_small * 255).astype(np.uint8), cv2.COLORMAP_JET)
-            
-            hm_right_large = cv2.resize(heatmap, (W_RIGHT, TARGET_H), interpolation=cv2.INTER_NEAREST)
-            hm_right_color = cv2.applyColorMap((hm_right_large * 255).astype(np.uint8), cv2.COLORMAP_JET)
 
-            # Blend Left
-            mask_l = hm_left_small[..., None]
-            final_left_small = (bg_left * (1.0 - mask_l*0.5) + hm_left_color * (mask_l*0.5)).astype(np.uint8)
-            final_left = cv2.resize(final_left_small, (W_LEFT, TARGET_H), interpolation=cv2.INTER_NEAREST)
 
-            # Blend Right (Smart Opacity)
-            mask_r = cv2.resize(heatmap, (W_RIGHT, TARGET_H), interpolation=cv2.INTER_NEAREST)[..., None]
-            is_bullet = bg_right_gray > 40
-            alpha_map = np.full((TARGET_H, W_RIGHT), 0.6)
-            alpha_map[is_bullet] = 0.1
-            alpha_map = alpha_map[..., None]
-            final_right = (bg_right * (1.0 - mask_r * alpha_map) + hm_right_color * (mask_r * alpha_map)).astype(np.uint8)
+                        # --- SARFA CALC on current obs ---
+                        obs_in = obs
+                        if hasattr(obs_in, 'max') and obs_in.max() <= 1.0:
+                            obs_in_sarfa = (obs_in * 255).astype(np.uint8)
+                        else:
+                            obs_in_sarfa = obs_in.astype(np.uint8)
 
-            # Stitch
-            full_canvas = np.zeros((FINAL_H, TOTAL_W, 3), dtype=np.uint8)
-            full_canvas[0:TARGET_H, 0:W_LEFT] = final_left
-            full_canvas[0:TARGET_H, W_LEFT:TOTAL_W] = final_right
-            cv2.line(full_canvas, (W_LEFT, 0), (W_LEFT, TARGET_H), (255, 255, 255), 2)
-            
-            # Text
-            act_name = str(action)
-            if "ACTION_NAMES" in cfg and action < len(cfg["ACTION_NAMES"]):
-                act_name = cfg["ACTION_NAMES"][action]
+                        if algo_name == "ddqn":
+                            heatmap, action = sarfa_heatmap_DDQN(
+                                agent, obs_in_sarfa, patch=args.patch, stride=args.stride,
+                                fill_mode="mean", batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
+                                use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],
+                                clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
+                                use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"],
+                                flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
+                            )
+                        elif algo_name == "ppo":
+                            heatmap, action = sarfa_heatmap_PPO(
+                                agent, device, obs_in_sarfa, patch=args.patch, stride=args.stride,
+                                fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
+                                batch_size=cfg["sarfa"]["ppo"]["batch_size"]
+                            )
+                        else:  # sac
+                            heatmap, action = sarfa_heatmap_SAC(
+                                lambda x: sac_policy_logits(agent, x),
+                                device, obs_in_sarfa, patch=args.patch, stride=args.stride
+                            )
 
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            y_text = TARGET_H + 40
-            cv2.putText(full_canvas, f"Step: {step}", (20, y_text), font, 0.8, (200, 200, 200), 2)
-            cv2.putText(full_canvas, f"Action: {act_name}", (W_LEFT + 20, y_text), font, 0.8, (0, 255, 0), 2)
-            cv2.putText(full_canvas, "Render", (W_LEFT - 100, TARGET_H - 10), font, 0.6, (255,255,255), 2)
-            cv2.putText(full_canvas, "Agent+SARFA", (TOTAL_W - 160, TARGET_H - 10), font, 0.6, (255,255,255), 2)
+                        # normalize heatmap 0..1
+                        heatmap = blur_heatmap(heatmap, k=5)
+                        if heatmap.max() > 0:
+                            heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
 
-            out.write(full_canvas)
+                        # --- repeat same action 4 times, BUT save every frame ---
+                        for _ in range(ACTION_REPEAT):
+                            obs, _, terminated, truncated, _ = env.step(action)
+                            step += 1
 
-            obs, _, terminated, truncated, _ = env.step(action)
-            step += 1
-            
-            # Break if done
-            if terminated or truncated:
-                print(f"Episode finished at step {step}.")
-                break
+                            rgb = _extract_ale_rgb(env)   # <-- AFTER step!
+                            if rgb is None:
+                                terminated = True
+                                break
+
+                            frame = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
+
+                            # overlay NON distruttivo: contorni (bullets restano)
+                            #frame = overlay_sarfa_contours(frame, heatmap, thr=0.25)
+                            frame = overlay_sarfa_colormap(frame, heatmap, thr=0.15, alpha_max=0.35, preserve_bright=True)
+
+
+                            # upscale for readability
+                            frame = cv2.resize(frame, (OUT_W, OUT_H), interpolation=cv2.INTER_NEAREST)
+
+                            out.write(frame)
+
+                            if terminated or truncated:
+                                break
+
+                        if terminated or truncated:
+                            print(f"Episode finished at step {step}.")
+                            break
 
     except KeyboardInterrupt:
-        print("Interrupted by user.")
-    finally:
-        out.release()
-        print(f"Saved Full Episode video to: {out_path}")
+        print("Video recording interrupted by user.")
+
+
 
 def main():
 
@@ -670,9 +728,13 @@ def main():
     # set up environment
 
     try:
-        env = make_env(env_id=cfg["env"]["id"], seed=args.seed, render_mode="rgb_array")
+        env = make_env_eval(env_id=cfg["env"]["id"], seed=args.seed, render_mode="rgb_array")
     except:
-        env = make_env(env_id=cfg["env"]["id"], seed=args.seed)
+        env = make_env_eval(env_id=cfg["env"]["id"], seed=args.seed)
+
+    if args.video:
+    # IMPORTANT: frame_skip=1 for video so bullets are visible
+        env = make_env_eval(env_id=cfg["env"]["id"], seed=args.seed, frame_skip=1, render_mode="rgb_array")
 
     
     # --- Collect early/mid/late snapshots ---
