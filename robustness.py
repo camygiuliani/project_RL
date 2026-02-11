@@ -16,6 +16,8 @@ from typing import Callable, Dict, List, Optional, Tuple
 from ddqn import DDQN_Agent
 from ppo import PPO_Agent
 from sac import SACDiscrete_Agent
+import cv2
+import sarfa
 
 # matplotlib optional
 try:
@@ -26,10 +28,35 @@ except Exception:
 from wrappers import make_env_eval  # your wrappers.py :contentReference[oaicite:2]{index=2}
 
 
-# =========================
-# Obs / heatmap utilities
-# =========================
+def _extract_ale_rgb(env):
+    """
+    Returns the true game RGB frame from ALE if possible.
+    """
+    # Unwrap to base env that has ALE
+    e = env
+    while hasattr(e, "env"):
+        if hasattr(e, "ale"):
+            break
+        e = e.env
 
+    # Try ALE first (most reliable for Atari details)
+    try:
+        if hasattr(e, "ale") and e.ale is not None:
+            frame = e.ale.getScreenRGB()
+            if frame is not None:
+                return frame
+    except Exception:
+        pass
+
+    # Fallback: gym render
+    try:
+        frame = env.render()
+        if isinstance(frame, list):
+            frame = frame[0]
+        return frame
+    except Exception:
+        return None
+    
 def to_hwc(x: np.ndarray) -> Tuple[np.ndarray, str]:
     """
     Convert observation (or heatmap) to HWC.
@@ -120,14 +147,15 @@ def occlude_patches_hwc(obs_hwc: np.ndarray, patch: int, patch_indices: List[Tup
     out = obs_hwc.copy()
     H, W, C = out.shape
 
-    if mode == "zero":
-        fill = 0
-    elif mode == "gray":
-        fill = 127 if out.dtype == np.uint8 else 0.5
-    elif mode == "mean":
-        fill = out.mean(axis=(0, 1), keepdims=True)
+    if mode == "mean":
+        fill = out.mean(axis=(0, 1), keepdims=True).astype(out.dtype)
     elif mode == "random":
         fill = None
+    elif mode == "gray":
+        val = 127 if out.dtype == np.uint8 else 0.5
+        fill = np.full((1, 1, C), val, dtype=out.dtype)
+    elif mode == "zero":
+        fill = 0
     else:
         raise ValueError(f"Unknown occlusion mode: {mode}")
 
@@ -141,8 +169,6 @@ def occlude_patches_hwc(obs_hwc: np.ndarray, patch: int, patch_indices: List[Tup
             else:
                 noise = np.random.rand(y1 - y0, x1 - x0, C).astype(out.dtype)
             out[y0:y1, x0:x1, :] = noise
-        elif mode == "mean":
-            out[y0:y1, x0:x1, :] = fill
         else:
             out[y0:y1, x0:x1, :] = fill
 
@@ -160,6 +186,64 @@ class EpisodeResult:
     return_sum: float
     length: int
 
+def save_high_res_vis(clean_obs, occluded_obs, save_path, heatmap=None, scale=5):
+    """
+    Saves a high-res, colored visualization similar to sarfa.py.
+    """
+    def prepare_frame(obs):
+        # 1. Handle dimensions (H,W) -> (H,W,1)
+        if obs.ndim == 2:
+            obs = obs[:, :, None]
+        
+        # 2. Handle Channels (Grayscale -> RGB)
+        # We repeat the grayscale channel 3 times so we can draw colored overlays on it
+        if obs.shape[-1] == 1:
+            obs = np.repeat(obs, 3, axis=-1)
+        elif obs.shape[-1] > 3:
+            obs = obs[:, :, :3]  # Take first 3 frames if stacked
+
+        # 3. Normalize to uint8 [0, 255]
+        if obs.dtype != np.uint8:
+            obs = (np.clip(obs, 0, 1) * 255).astype(np.uint8)
+
+        # 4. Upscale (Nearest Neighbor preserves sharp pixels)
+        h, w = obs.shape[:2]
+        # Convert RGB (Gym) to BGR (OpenCV)
+        bgr = cv2.cvtColor(obs, cv2.COLOR_RGB2BGR)
+        return cv2.resize(bgr, (w * scale, h * scale), interpolation=cv2.INTER_NEAREST)
+
+    # Prepare base images
+    img_clean = prepare_frame(clean_obs)
+    img_occ = prepare_frame(occluded_obs)
+
+    if heatmap is not None:
+        # --- THE COLOR MAGIC HAPPENS HERE ---
+        # Resize heatmap to match the upscaled image dimensions
+        h_high, w_high = img_clean.shape[:2]
+        hm_resized = cv2.resize(heatmap, (w_high, h_high), interpolation=cv2.INTER_NEAREST)
+        hm_resized = np.clip(hm_resized, 0, 1)
+
+        # Apply the "Turbo" colormap (or cv2.COLORMAP_JET)
+        hm_uint8 = (hm_resized * 255).astype(np.uint8)
+        colored_map = cv2.applyColorMap(hm_uint8, cv2.COLORMAP_TURBO)
+
+        # Create a mask to only color meaningful regions (optional, keeps background cleaner)
+        mask = (hm_resized > 0.15).astype(np.float32)[..., None]
+        
+        # Blend: Original Image * (1-alpha) + Heatmap * alpha
+        # We only blend where the mask is active
+        alpha = 0.5
+        overlay = img_clean.astype(np.float32) * (1 - mask * alpha) + colored_map.astype(np.float32) * (mask * alpha)
+        overlay = np.clip(overlay, 0, 255).astype(np.uint8)
+
+        # Stack: Clean (Gray) | Overlay (Color) | Occluded (Gray+Block)
+        combined = np.hstack((img_clean, overlay, img_occ))
+    else:
+        # Stack: Clean | Occluded
+        combined = np.hstack((img_clean, img_occ))
+
+    # Save to disk
+    cv2.imwrite(save_path, combined)
 
 def run_eval(
     env,
@@ -171,12 +255,7 @@ def run_eval(
     seed_offset: int = 0,
     save_dir : Optional[str] = None
 ) -> List[EpisodeResult]:
-    """
-    condition:
-      - "clean": no occlusion
-      - "random": occlude K random patches
-      - "sarfa": occlude top-K SARFA patches
-    """
+    
     results: List[EpisodeResult] = []
     rng = np.random.default_rng((occ.seed if occ else 0) + seed_offset)
 
@@ -185,67 +264,72 @@ def run_eval(
 
     for ep in range(episodes):
         obs, _ = env.reset(seed=seed_offset + ep)
+        
+        # [VIS] Capture initial color frame
+        raw_rgb = _extract_ale_rgb(env)
+        
         done = False
         total = 0.0
         t = 0
 
         while not done:
             obs_hwc, tag = to_hwc(obs)
+            
+            # [VIS] Prepare a color version of the observation for visualization
+            # Resize raw RGB to 84x84 to match the agent's grid structure
+            vis_rgb_84 = cv2.resize(raw_rgb, (obs_hwc.shape[1], obs_hwc.shape[0]), interpolation=cv2.INTER_AREA)
 
-            if condition == "clean" or occ is None:
-                obs_used = obs
-
-            elif condition == "random":
-                idx = random_patch_indices(obs_hwc.shape[0], obs_hwc.shape[1], occ.patch, occ.k, rng)
-                occ_obs_hwc = occlude_patches_hwc(obs_hwc, occ.patch, idx, occ.mode)
-                obs_used = from_hwc(occ_obs_hwc, tag)
-
+            obs_used = obs
+            
+            # Identify which patches to occlude
+            patches_to_hide = []
+            
+            if condition == "random":
+                patches_to_hide = random_patch_indices(obs_hwc.shape[0], obs_hwc.shape[1], occ.patch, occ.k, rng)
+            
             elif condition == "sarfa":
                 if sarfa_heatmap_fn is None:
-                    raise ValueError("sarfa_heatmap_fn is required for condition='sarfa'")
-
-                # Fair protocol: choose action from CLEAN obs, then occlude, then act on occluded obs
+                    raise ValueError("sarfa_heatmap_fn is required")
+                
+                # Get action & heatmap
                 a_clean = policy_fn(obs)
-
                 heat = sarfa_heatmap_fn(obs, a_clean)
                 heat_hwc, _ = to_hwc(heat)
                 heat_hw = heat_hwc[:, :, 0]
+                
+                patches_to_hide = topk_patch_indices_from_heat(heat_hw, occ.patch, occ.k)
 
-                idx = topk_patch_indices_from_heat(heat_hw, occ.patch, occ.k)
-                occ_obs_hwc = occlude_patches_hwc(obs_hwc, occ.patch, idx, occ.mode)
+            # Apply Occlusion to AGENT Observation (Grayscale)
+            if patches_to_hide:
+                occ_obs_hwc = occlude_patches_hwc(obs_hwc, occ.patch, patches_to_hide, occ.mode)
                 obs_used = from_hwc(occ_obs_hwc, tag)
-
             else:
-                raise ValueError(f"Unknown condition: {condition}")
+                obs_used = obs
 
-            if ep == 0 and t == 0 and plt is not None and condition in ("random", "sarfa"):
-                # 1. Prepare Clean Image (from original 'obs')
-                clean_img, _ = to_hwc(obs)
-                if clean_img.dtype != np.uint8:
-                    clean_img = (np.clip(clean_img, 0, 1) * 255).astype(np.uint8)
-                if clean_img.shape[-1] == 1: 
-                    clean_img = np.repeat(clean_img, 3, axis=-1) # Make RGB for concatenation
-                elif clean_img.shape[-1] > 3:
-                    clean_img = clean_img[:, :, :3] # Take first 3 channels if stacked
+            # [VIS] Visualization Logic (Save Color Images)
+            if ep == 20 and t == 0 and condition in ("random", "sarfa"):
+                # 1. Apply the SAME occlusion to our Color 84x84 image
+                # We use "gray" mode for visual clarity on the color image
+                vis_occ_rgb = occlude_patches_hwc(vis_rgb_84, occ.patch, patches_to_hide, mode="gray")
+                
+                fname = os.path.join(save_dir, f"vis_{condition}_ep{ep}_color.png")
+                
+                # Prepare heatmap if SARFA
+                current_heatmap = None
+                if condition == "sarfa" and 'heat_hw' in locals():
+                    current_heatmap = normalize_heatmap(heat_hw)
 
-                # 2. Prepare Occluded Image (from 'obs_used')
-                occ_img, _ = to_hwc(obs_used)
-                if occ_img.dtype != np.uint8:
-                    occ_img = (np.clip(occ_img, 0, 1) * 255).astype(np.uint8)
-                if occ_img.shape[-1] == 1:
-                    occ_img = np.repeat(occ_img, 3, axis=-1)
-                elif occ_img.shape[-1] > 3:
-                    occ_img = occ_img[:, :, :3]
+                # Save using the High-Res Saver (passing Color images now!)
+                save_high_res_vis(vis_rgb_84, vis_occ_rgb, fname, heatmap=current_heatmap, scale=5)
 
-                # Stitch and Save
-                combined = np.hstack((clean_img, occ_img))
-                fname = os.path.join(save_dir, f"vis_{condition}_ep{ep}.png")
-                plt.imsave(fname, combined)
-
+            # Step the environment
             a = policy_fn(obs_used)
             obs, r, terminated, truncated, _ = env.step(a)
+            
+            # [VIS] Capture next color frame immediately after step
+            raw_rgb = _extract_ale_rgb(env)
+            
             done = bool(terminated or truncated)
-
             total += float(r)
             t += 1
 
@@ -338,9 +422,9 @@ def build_policy(algo: str, env_id: str, ckpt: str, device: str, cfg: Dict):
         from ddqn import DDQN_Agent
         # Verify if your DDQN_Agent accepts 'env' or 'obs_shape'. 
         # If not, use: agent = DDQN_Agent(n_actions=n_actions, device=dev)
-        agent = DDQN_Agent(n_channels=cfg['ddqn']['n_channels'], obs_shape=obs_shape, n_actions=n_actions, device=dev) 
+        agent = DDQN_Agent(env=env_id, n_channels=cfg['ddqn']['n_channels'], obs_shape=obs_shape, n_actions=n_actions, device=dev) 
         agent.load(ckpt)
-        return lambda obs: agent.act(obs, eps=0.0), "DDQN"
+        return lambda obs: agent.act(obs, eps=0.0), "DDQN", agent
 
     if algo == "ppo":
         from ppo import PPO_Agent
@@ -350,13 +434,13 @@ def build_policy(algo: str, env_id: str, ckpt: str, device: str, cfg: Dict):
             # Ensure proper batch dimension if PPO expects it
             if obs.ndim == 3: obs = np.expand_dims(obs, 0)
             return int(agent.act(obs)[0][0])
-        return policy_fn, "PPO"
+        return policy_fn, "PPO", agent
 
     if algo == "sac":
         from sac import SACDiscrete_Agent
         agent = SACDiscrete_Agent(obs_shape=obs_shape, n_actions=n_actions, device=dev)
         agent.load(ckpt)
-        return lambda obs: agent.act(obs, deterministic=True), "SAC"
+        return lambda obs: agent.act(obs, deterministic=True), "SAC", agent
 
     raise ValueError(f"Unknown algo: {algo}")
 
@@ -365,27 +449,32 @@ def build_policy(algo: str, env_id: str, ckpt: str, device: str, cfg: Dict):
 # SARFA hook (you connect it)
 # =========================
 
-def build_sarfa_heatmap_fn():
+def build_sarfa_heatmap_fn(agent, algo_name):
     """
-    TODO: connect to your sarfa.py.
-
-    Expected signature:
-        heat = sarfa_heatmap_fn(obs_uint8, action_int)  -> np.ndarray (84,84) or (84,84,1)
-
-    Minimal adapter example (YOU will replace this):
-        from sarfa import your_function
-        def sarfa_heatmap_fn(obs, action):
-            heat, _ = your_function(..., obs=obs, action=action, ...)
-            return heat
-        return sarfa_heatmap_fn
+    Returns a function: fn(obs, action) -> heatmap (2D numpy)
     """
-    # Placeholder to avoid breaking clean/random runs:
+    if agent is None:
+        return None
+
+    if algo_name == "DDQN":
+        def wrapper(obs, action):
+            # Call the function from sarfa.py
+            # Note: ensure obs is formatted correctly (H,W) or (H,W,C)
+            return sarfa.sarfa_heatmap_DDQN(agent, obs, action=action)
+        return wrapper
+
+    elif algo_name == "PPO":
+        def wrapper(obs, action):
+            return sarfa.sarfa_heatmap_PPO(agent, obs, action=action)
+        return wrapper
+
+    elif algo_name == "SAC":
+        def wrapper(obs, action):
+            return sarfa.sarfa_heatmap_SAC(agent, obs, action=action)
+        return wrapper
+
     return None
 
-
-# =========================
-# Main
-# =========================
 
 def main():
     cfg = load_config("config.yaml")
@@ -425,13 +514,13 @@ def main():
             ckpt = cfg["sac"]["path_best_model"]
     
     print(f"Loading {args.algo} from {ckpt}...")
-    policy_fn, algo_name = build_policy(args.algo, args.env_id, ckpt, args.device, cfg=cfg)
+    policy_fn, algo_name, agent = build_policy(args.algo, args.env_id, ckpt, args.device, cfg=cfg)
 
     # occlusion config
     occ = OcclusionConfig(patch=args.patch, k=args.k, mode=args.mode, seed=args.seed)
 
     # sarfa hook
-    sarfa_heatmap_fn = build_sarfa_heatmap_fn()
+    sarfa_heatmap_fn = build_sarfa_heatmap_fn(agent=agent, algo_name=algo_name)
 
     # run conditions
     results: List[EpisodeResult] = []
