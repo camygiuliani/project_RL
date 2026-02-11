@@ -1,10 +1,11 @@
 from __future__ import annotations
 from datetime import datetime
 import os
+from unittest import case
 import numpy as np
 from tqdm import tqdm, trange
 from utils import load_config
-from wrappers import make_env, make_env_eval
+from wrappers import make_env_eval
 import torch
 import os
 import csv
@@ -12,6 +13,9 @@ import math
 import argparse
 from dataclasses import dataclass, asdict
 from typing import Callable, Dict, List, Optional, Tuple
+from ddqn import DDQN_Agent
+from ppo import PPO_Agent
+from sac import SACDiscrete_Agent
 
 # matplotlib optional
 try:
@@ -165,6 +169,7 @@ def run_eval(
     occ: Optional[OcclusionConfig],
     condition: str,
     seed_offset: int = 0,
+    save_dir : Optional[str] = None
 ) -> List[EpisodeResult]:
     """
     condition:
@@ -174,6 +179,9 @@ def run_eval(
     """
     results: List[EpisodeResult] = []
     rng = np.random.default_rng((occ.seed if occ else 0) + seed_offset)
+
+    if save_dir:
+        os.makedirs(save_dir, exist_ok=True)
 
     for ep in range(episodes):
         obs, _ = env.reset(seed=seed_offset + ep)
@@ -209,6 +217,30 @@ def run_eval(
 
             else:
                 raise ValueError(f"Unknown condition: {condition}")
+
+            if ep == 0 and t == 0 and plt is not None and condition in ("random", "sarfa"):
+                # 1. Prepare Clean Image (from original 'obs')
+                clean_img, _ = to_hwc(obs)
+                if clean_img.dtype != np.uint8:
+                    clean_img = (np.clip(clean_img, 0, 1) * 255).astype(np.uint8)
+                if clean_img.shape[-1] == 1: 
+                    clean_img = np.repeat(clean_img, 3, axis=-1) # Make RGB for concatenation
+                elif clean_img.shape[-1] > 3:
+                    clean_img = clean_img[:, :, :3] # Take first 3 channels if stacked
+
+                # 2. Prepare Occluded Image (from 'obs_used')
+                occ_img, _ = to_hwc(obs_used)
+                if occ_img.dtype != np.uint8:
+                    occ_img = (np.clip(occ_img, 0, 1) * 255).astype(np.uint8)
+                if occ_img.shape[-1] == 1:
+                    occ_img = np.repeat(occ_img, 3, axis=-1)
+                elif occ_img.shape[-1] > 3:
+                    occ_img = occ_img[:, :, :3]
+
+                # Stitch and Save
+                combined = np.hstack((clean_img, occ_img))
+                fname = os.path.join(save_dir, f"vis_{condition}_ep{ep}.png")
+                plt.imsave(fname, combined)
 
             a = policy_fn(obs_used)
             obs, r, terminated, truncated, _ = env.step(a)
@@ -293,56 +325,40 @@ def plot_summary(summary: Dict[str, Dict[str, float]], outpath: str, title: str)
     plt.close()
 
 
-def build_policy(algo: str, env_id: str, ckpt: str, device: str):
-    """
-    Returns policy_fn(obs)->action and a short display name.
-    Uses your agents:
-      - ddqn.DDQN_Agent.act(obs, eps=0.0), load(path)
-      - ppo.PPO_Agent.act(obs_batch)-> (actions, logps, values), load(path)
-      - sac.SACDiscrete_Agent.act(obs, deterministic=True), load(path)
-    """
-
+def build_policy(algo: str, env_id: str, ckpt: str, device: str, cfg: Dict):
     dev = torch.device(device)
-    obs_shape = (84, 84, 4)  # your wrappers output :contentReference[oaicite:3]{index=3}
-
+    
     # Create a temp env just to read action_space.n
     tmp_env = make_env_eval(env_id=env_id, seed=0, frame_skip=4, render_mode=None)
+    obs_shape = tmp_env.observation_space.shape
     n_actions = tmp_env.action_space.n
     tmp_env.close()
 
     if algo == "ddqn":
-        from ddqn import DDQN_Agent  # :contentReference[oaicite:4]{index=4}
-        agent = DDQN_Agent(env=env_id, n_channels=4, obs_shape=obs_shape, n_actions=n_actions, device=dev)
+        from ddqn import DDQN_Agent
+        # Verify if your DDQN_Agent accepts 'env' or 'obs_shape'. 
+        # If not, use: agent = DDQN_Agent(n_actions=n_actions, device=dev)
+        agent = DDQN_Agent(n_channels=cfg['ddqn']['n_channels'], obs_shape=obs_shape, n_actions=n_actions, device=dev) 
         agent.load(ckpt)
-
-        def policy_fn(obs: np.ndarray) -> int:
-            return agent.act(obs, eps=0.0)
-
-        return policy_fn, "DDQN"
+        return lambda obs: agent.act(obs, eps=0.0), "DDQN"
 
     if algo == "ppo":
-        from ppo import PPO_Agent  # :contentReference[oaicite:5]{index=5}
-        agent = PPO_Agent(obs_shape=obs_shape, n_actions=n_actions, env_id=env_id, device=dev)
+        from ppo import PPO_Agent
+        agent = PPO_Agent(obs_shape=obs_shape, n_actions=n_actions, device=dev)
         agent.load(ckpt)
-
-        def policy_fn(obs: np.ndarray) -> int:
-            obs_b = np.expand_dims(obs, axis=0)
-            actions, _, _ = agent.act(obs_b)
-            return int(actions[0])
-
+        def policy_fn(obs):
+            # Ensure proper batch dimension if PPO expects it
+            if obs.ndim == 3: obs = np.expand_dims(obs, 0)
+            return int(agent.act(obs)[0][0])
         return policy_fn, "PPO"
 
     if algo == "sac":
-        from sac import SACDiscrete_Agent  # :contentReference[oaicite:6]{index=6}
-        agent = SACDiscrete_Agent(obs_shape=obs_shape, n_actions=n_actions, device=dev, env_id=env_id)
+        from sac import SACDiscrete_Agent
+        agent = SACDiscrete_Agent(obs_shape=obs_shape, n_actions=n_actions, device=dev)
         agent.load(ckpt)
+        return lambda obs: agent.act(obs, deterministic=True), "SAC"
 
-        def policy_fn(obs: np.ndarray) -> int:
-            return agent.act(obs, deterministic=True)
-
-        return policy_fn, "SAC"
-
-    raise ValueError(f"Unknown algo: {algo}. Choose from: ddqn, ppo, sac")
+    raise ValueError(f"Unknown algo: {algo}")
 
 
 # =========================
@@ -372,13 +388,12 @@ def build_sarfa_heatmap_fn():
 # =========================
 
 def main():
-    # load config from config.yaml
     cfg = load_config("config.yaml")
     
     ap = argparse.ArgumentParser()
     ap.add_argument("--env_id", type=str, default="ALE/SpaceInvaders-v5")
     ap.add_argument("--algo", type=str, required=True, choices=["ddqn", "ppo", "sac"])
-    ap.add_argument("--ckpt", type=str, default=cfg["ddqn"]["path_best_model"])
+    ap.add_argument("--ckpt", type=str, default=None) 
     ap.add_argument("--episodes", type=int, default=30)
 
     ap.add_argument("--patch", type=int, default=8)
@@ -389,14 +404,28 @@ def main():
     ap.add_argument("--frame_skip", type=int, default=4)
     ap.add_argument("--device", type=str, default="cuda")
 
-    ap.add_argument("--run_sarfa", action="store_true", help="Also run SARFA-guided occlusion (requires sarfa hook).")
+    ap.add_argument("--run_sarfa", action="store_true", help="Also run SARFA-guided occlusion.")
     args = ap.parse_args()
 
     # env
-    env = make_env_eval(env_id=args.env_id, seed=args.seed, frame_skip=args.frame_skip, render_mode=None)  # :contentReference[oaicite:7]{index=7}
+    env = make_env_eval(env_id=args.env_id, seed=args.seed, frame_skip=args.frame_skip, render_mode=None)
 
-    # policy
-    policy_fn, algo_name = build_policy(args.algo, args.env_id, args.ckpt, args.device)
+    outdir = os.path.join(cfg["robustness"]["outdir"], args.algo)
+    os.makedirs(outdir, exist_ok=True)  
+
+    if args.ckpt is not None:
+        ckpt = args.ckpt
+    else:
+        # Load default from config based on algo
+        if args.algo == "ddqn":
+            ckpt = cfg["ddqn"]["path_best_model"]
+        elif args.algo == "ppo":
+            ckpt = cfg["ppo"]["path_best_model"]
+        elif args.algo == "sac":
+            ckpt = cfg["sac"]["path_best_model"]
+    
+    print(f"Loading {args.algo} from {ckpt}...")
+    policy_fn, algo_name = build_policy(args.algo, args.env_id, ckpt, args.device, cfg=cfg)
 
     # occlusion config
     occ = OcclusionConfig(patch=args.patch, k=args.k, mode=args.mode, seed=args.seed)
@@ -406,21 +435,17 @@ def main():
 
     # run conditions
     results: List[EpisodeResult] = []
-    results += run_eval(env, policy_fn, sarfa_heatmap_fn, args.episodes, None, "clean", seed_offset=args.seed)
-    results += run_eval(env, policy_fn, sarfa_heatmap_fn, args.episodes, occ, "random", seed_offset=args.seed + 10_000)
+    results += run_eval(env, policy_fn, sarfa_heatmap_fn, args.episodes, None, "clean", seed_offset=args.seed, save_dir=outdir)
+    results += run_eval(env, policy_fn, sarfa_heatmap_fn, args.episodes, occ, "random", seed_offset=args.seed + 10_000, save_dir=outdir)
 
     if args.run_sarfa:
         if sarfa_heatmap_fn is None:
             raise RuntimeError("You set --run_sarfa but sarfa_heatmap_fn is None. Connect sarfa.py in build_sarfa_heatmap_fn().")
-        results += run_eval(env, policy_fn, sarfa_heatmap_fn, args.episodes, occ, "sarfa", seed_offset=args.seed + 20_000)
+        results += run_eval(env, policy_fn, sarfa_heatmap_fn, args.episodes, occ, "sarfa", seed_offset=args.seed + 20_000, save_dir=outdir)
 
     env.close()
 
     summ = add_deltas(summarize(results), base="clean")
-
-    # save
-    outdir = os.path.join(cfg["robustness"]["outdir"], args.algo)
-    os.makedirs(outdir, exist_ok=True)
 
     save_csv(results, os.path.join(outdir, "episodes.csv"))
     save_summary_csv(summ, os.path.join(outdir, "summary.csv"))

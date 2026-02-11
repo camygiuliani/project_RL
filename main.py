@@ -54,7 +54,8 @@ def main():
     if args.ddqn:
             print("Initializing DDQN agent...")
 
-            ddqn_agent = DDQN_Agent(env=env_id,n_channels= cfg['ddqn']['n_channels'],
+            ddqn_agent = DDQN_Agent(env=env_id,
+                                    n_channels= cfg['ddqn']['n_channels'],
                                     obs_shape=obs_shape,
                                     n_actions=n_actions, 
                                     device=device,
