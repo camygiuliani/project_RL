@@ -81,8 +81,15 @@ pha=902596992.000 Entropy=1.756
 
 per le slide:
 -sarfa (che fa/come funziona)
--gli algoritmi 
+-gli algoritmi   [OK]
 -risultati degli algoritmi
 -sarfa sugli algoritmi 
 -robustness (strategia)
 -robustness (outputs) 
+
+
+=================12 gen
+- cambiare nome repository?
+-slides
+-sac?
+=============================
