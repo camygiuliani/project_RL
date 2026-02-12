@@ -390,30 +390,6 @@ def _save_side_by_side(image_paths, out_path):
     combo = cv2.hconcat(resized)
     cv2.imwrite(out_path, combo)
 
-""" def _extract_ale_rgb(env):
-    # Try to get ALE screen RGB through wrappers
-    ale = None
-    current_env = env
-    while hasattr(current_env, "env"):
-        if hasattr(current_env, "ale"):
-            ale = current_env.ale
-            break
-        current_env = current_env.env
-    if ale is None and hasattr(current_env, "ale"):
-        ale = current_env.ale
-
-    if ale is not None:
-        try:
-            return ale.getScreenRGB()
-        except Exception:
-            pass
-
-    # fallback
-    try:
-        return env.render()
-    except Exception:
-        return None
- """
 def _extract_ale_rgb(env):
     """
     Returns the true game RGB frame (210x160x3) from ALE if possible,
@@ -511,19 +487,6 @@ def _save_grid_3x3(grid_paths, snap_order, algo_order, out_path):
     plt.tight_layout()
     plt.savefig(out_path, dpi=200, bbox_inches="tight", pad_inches=0.2)
     plt.close()
-
-""" def _extract_ale_rgb(env):
-        try:
-            frame = env.render()
-            if isinstance(frame, list): frame = frame[0]
-            if frame is not None and frame.shape[-1] == 3: return frame
-        except:
-            pass
-        try:
-            return env.unwrapped.ale.getScreenRGB()
-        except: 
-            return np.zeros((210, 160, 3), dtype=np.uint8)
-"""
 
 def _get_agent_obs_view(observation):
         img = observation.copy()
@@ -625,76 +588,72 @@ def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_s
     truncated = False
 
     try:
-             while True:
-                        if step % 50 == 0:
-                                 print(f"Rendering frame {step}...",end="\r")
+        while True:
+            if step % 50 == 0:
+                        print(f"Rendering frame {step}...",end="\r")
 
-            
+            # --- SARFA CALC on current obs ---
+            obs_in = obs
+            if hasattr(obs_in, 'max') and obs_in.max() <= 1.0:
+                obs_in_sarfa = (obs_in * 255).astype(np.uint8)
+            else:
+                obs_in_sarfa = obs_in.astype(np.uint8)
 
+            if algo_name == "ddqn":
+                heatmap, action = sarfa_heatmap_DDQN(
+                    agent, obs_in_sarfa, patch=args.patch, stride=args.stride,
+                    fill_mode="mean", batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
+                    use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],
+                    clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
+                    use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"],
+                    flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
+                )
+            elif algo_name == "ppo":
+                heatmap, action = sarfa_heatmap_PPO(
+                    agent, device, obs_in_sarfa, patch=args.patch, stride=args.stride,
+                    fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
+                    batch_size=cfg["sarfa"]["ppo"]["batch_size"]
+                )
+            else:  # sac
+                heatmap, action = sarfa_heatmap_SAC(
+                    lambda x: sac_policy_logits(agent, x),
+                    device, obs_in_sarfa, patch=args.patch, stride=args.stride
+                )
 
+            # normalize heatmap 0..1
+            heatmap = blur_heatmap(heatmap, k=5)
+            if heatmap.max() > 0:
+                heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
 
-                        # --- SARFA CALC on current obs ---
-                        obs_in = obs
-                        if hasattr(obs_in, 'max') and obs_in.max() <= 1.0:
-                            obs_in_sarfa = (obs_in * 255).astype(np.uint8)
-                        else:
-                            obs_in_sarfa = obs_in.astype(np.uint8)
+            # --- repeat same action 4 times, BUT save every frame ---
+            for _ in range(ACTION_REPEAT):
+                obs, _, terminated, truncated, _ = env.step(action)
+                step += 1
 
-                        if algo_name == "ddqn":
-                            heatmap, action = sarfa_heatmap_DDQN(
-                                agent, obs_in_sarfa, patch=args.patch, stride=args.stride,
-                                fill_mode="mean", batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
-                                use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],
-                                clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
-                                use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"],
-                                flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
-                            )
-                        elif algo_name == "ppo":
-                            heatmap, action = sarfa_heatmap_PPO(
-                                agent, device, obs_in_sarfa, patch=args.patch, stride=args.stride,
-                                fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
-                                batch_size=cfg["sarfa"]["ppo"]["batch_size"]
-                            )
-                        else:  # sac
-                            heatmap, action = sarfa_heatmap_SAC(
-                                lambda x: sac_policy_logits(agent, x),
-                                device, obs_in_sarfa, patch=args.patch, stride=args.stride
-                            )
+                rgb = _extract_ale_rgb(env)   # <-- AFTER step!
+                if rgb is None:
+                    terminated = True
+                    break
 
-                        # normalize heatmap 0..1
-                        heatmap = blur_heatmap(heatmap, k=5)
-                        if heatmap.max() > 0:
-                            heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
+                frame = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
-                        # --- repeat same action 4 times, BUT save every frame ---
-                        for _ in range(ACTION_REPEAT):
-                            obs, _, terminated, truncated, _ = env.step(action)
-                            step += 1
-
-                            rgb = _extract_ale_rgb(env)   # <-- AFTER step!
-                            if rgb is None:
-                                terminated = True
-                                break
-
-                            frame = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
-
-                            # overlay NON distruttivo: contorni (bullets restano)
-                            #frame = overlay_sarfa_contours(frame, heatmap, thr=0.25)
-                            frame = overlay_sarfa_colormap(frame, heatmap, thr=0.30, alpha_max=0.45, preserve_bright=True)
+                # overlay NON distruttivo: contorni (bullets restano)
+                #frame = overlay_sarfa_contours(frame, heatmap, thr=0.25)
+                frame = overlay_sarfa_colormap(frame, heatmap, thr=0.30, alpha_max=0.45, preserve_bright=True)
 
 
-                            # upscale for readability
-                            frame = cv2.resize(frame, (OUT_W, OUT_H), interpolation=cv2.INTER_NEAREST)
+                # upscale for readability
+                frame = cv2.resize(frame, (OUT_W, OUT_H), interpolation=cv2.INTER_NEAREST)
 
-                            out.write(frame)
+                out.write(frame)
 
-                            if terminated or truncated:
-                                break
+                if terminated or truncated:
+                    break
 
-                        if terminated or truncated:
-                            print(f"Episode finished at step {step}.")
-                            print(f" Video saved at {out_path}")
-                            break
+            if terminated or truncated:
+                print(f"Episode finished at step {step}.")
+                print(f" Video saved at {out_path}")
+                break
 
     except KeyboardInterrupt:
         print("Video recording interrupted by user.")

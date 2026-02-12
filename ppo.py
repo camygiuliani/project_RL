@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, time
 import os
 import numpy as np
 import torch
@@ -193,9 +193,9 @@ class PPO_Agent:
                 batch_size=256,max_grad_norm=0.5,vf_coef=0.5,ent_coef=0.01,
                 clip_eps=0.1, log_every=10_000, checkpoint_dir=None, save_dir=None,):
         
-        seed = 0
+        seed = seed = int(time.time())
         date = datetime.now().strftime("%Y_%m_%d")
-
+        
         os.makedirs(save_dir, exist_ok=True)
         outdir_runs = os.path.join(save_dir, date)
         os.makedirs(outdir_runs, exist_ok=True)
