@@ -7,13 +7,29 @@
 
 Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
 ## Project structure
-**main.py**: training and evaluation entry point
+**config.yaml**: global configuration file 
 
-**sarfa.py**: SARFA-based visual explanations
+**main.py**: training and evaluation entry point
 
 **dqn.py, ppo.py, sac.py**: RL algorithm implementations
 
-**config.yaml**: global configuration file 
+**sarfa.py**: SARFA-based visual explanations
+
+**robustness.py** code for robustness test and boh???
+
+**utils.py** and **wrappers.py** for other functions
+
+
+## Experimental Setup (Summary)
+
+- **Benchmark:** Atari Space Invaders (ALE v5)
+- **State representation:** 84×84 grayscale frames with **4-frame stacking**
+- **Action space:** 6 discrete actions
+- **Agents compared:** **DDQN**, **PPO**, **SAC (discrete)**
+- **Interpretability:** **SARFA** visual explanations (heatmaps + video overlays)
+- **Robustness evaluation:** patch occlusion tests (**random baseline** vs **SARFA-guided top-K occlusion**)
+
+
 
 ## How to run the code
 ### 1. Clone the repository
@@ -58,19 +74,15 @@ All hyperparameters, paths, and experimental settings are defined in a single co
 ### 5. Train an agent
 Training is handled via **main.py**.
 Choose one algorithm at a time.
-#### DDQN
+
 ```bash
-python3 main.py --train --ddqn
-```
-#### PPO
-```bash
+python3 main.py --train --ddqn 
 python3 main.py --train --ppo
-```
-#### SAC
-```bash
 python3 main.py --train --sac
 ```
-Training outputs and checkpoints are saved under:  runs/<algorithm>/
+> Additional hyperparameters and settings can be customized in `config.yaml` and directly in `main.py`.
+
+Training outputs and checkpoints are saved under:  `runs/<algorithm>/` and   `checkpoints/<algorithm>/` and both  and are further organized into timestamped subfolders.
 
 ### 6. Evaluate a trained agent
 To evaluate a trained model over multiple episodes:
@@ -80,15 +92,53 @@ python3 main.py --eval --ppo
 python3 main.py --eval --sac
 ```
 Choose one algorithm at a time. Evaluation reports mean and standard deviation of episodic returns.
+> Additional hyperparameters and settings can be customized in `config.yaml` and directly in `main.py`.
 
-### 7. Run SARFA explanations
-SARFA visual explanations can be generated for each trained agent: 
+Evaluation outputs are saved under:  `runs/<algorithm>/` and are further organized into timestamped subfolders.
+
+
+### 7a. Run SARFA explanations (snapshots)
+SARFA visual explanations can be generated for each trained agent. Choose one algorithm at a time:
 ```bash
 python3 sarfa.py --algo ddqn
 python3 sarfa.py --algo ppo
 python3 sarfa.py --algo sac
 ```
-Choose one algorithm at a time. Generated heatmaps are saved under: runs/sarfa/<date>  
+ or to  generate a 3×3 comparison grid that  shows a SARFA visual explanation for each algorithm at three different moments of the episode (early, mid, and late) : 
+```bash
+python3 sarfa.py --algo all
+```   
+> Additional hyperparameters and settings can be customized in `config.yaml` and directly in `sarfa.py`.
+
+Generated heatmaps are saved under `sarfa_outputs/` and are further organized into timestamped subfolders.
+
+
+### 7b. Run SARFA explanations (single full-screen video + colored heatmap overlay)
+```bash
+python3 sarfa.py --algo ddqn --video
+python3 sarfa.py --algo ppo --video 
+python3 sarfa.py --algo sac --video
+```   
+> Additional hyperparameters and settings can be customized in `config.yaml` and directly in `sarfa.py`.
+
+The videos are saved under `sarfa_outputs/` and are further organized into timestamped subfolders.
+
+
+### 8 Robustness analysis
+
+
+```bash
+python3 robustness.py --algo <ddqn|ppo|sac>
+```
+To enable the SARFA-guided occlusion condition, add:
+```bash
+python3 robustness.py --algo <ddqn|ppo|sac> --run_sarfa
+```
+> Additional hyperparameters and settings can be customized in `config.yaml` and directly in `robustness.py`.
+
+Robustness outputs are saved under:  `robustness_outputs/<algorithm>/` and are further organized into timestamped subfolders.
+
+
 
 
 ## Hardware notes
@@ -98,12 +148,13 @@ Choose one algorithm at a time. Generated heatmaps are saved under: runs/sarfa/<
 
 -Training on CPU is significantly slower
 
+## License
+MIT License — see [LICENSE](LICENSE).
 
 
 ## References 
 - [1] [Explain Your Move: Understanding Agent Actions Using Specific and Relevant Feature Attribution ](https://arxiv.org/abs/1912.12191)
-- [2] [ Free invaders online game](https://freeinvaders.org/)
-- [3]  [Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor](https://arxiv.org/pdf/1801.01290)
-- [4] [Soft Actor-Critic Algorithms and Applications](https://arxiv.org/pdf/1812.05905)
-- [5] [Proximal Policy Optimization Algorithms](https://arxiv.org/abs/1707.06347)
-- [6] [Human-level control through deep reinforcement learning](https://www.nature.com/articles/nature14236)
+- [2]  [Soft Actor-Critic: Off-Policy Maximum Entropy Deep Reinforcement Learning with a Stochastic Actor](https://arxiv.org/pdf/1801.01290)
+- [3] [Soft Actor-Critic Algorithms and Applications](https://arxiv.org/pdf/1812.05905)
+- [4] [Proximal Policy Optimization Algorithms](https://arxiv.org/abs/1707.06347)
+- [5] [Human-level control through deep reinforcement learning](https://www.nature.com/articles/nature14236)
