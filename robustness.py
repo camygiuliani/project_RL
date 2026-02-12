@@ -438,7 +438,7 @@ def main():
     save_csv(results, results_path)
     save_summary_csv(summ, summary_path)
     plot_summary(summ, plot_path, 
-                title=f"{algo_name} robustness ({args.env_id})-patch={args.patch}, k={args.k}, mode={args.mode}")
+                title=f"{algo_name} robustness ({args.env_id}) p={args.patch}, k={args.k}, ep={args.episodes}")
     
     print(f"Done. Saved to {outdir}")
     print(summ)

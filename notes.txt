@@ -77,3 +77,12 @@ problema sac:
 [step 540000] Avg100=5.580, q1=3970764747678154752.000 q2=549794094484832649216.000 Actor=-45153882112.000 Alpha=904413312.000 Entropy=1.757 
 [step 550000] Avg100=5.710, q1=4979971286441656320.000 q2=557392617034253074432.000 Actor=-44490272768.000 Alpha=900897600.000 Entropy=1.757 
 pha=902596992.000 Entropy=1.756
+
+
+per le slide:
+-sarfa (che fa/come funziona)
+-gli algoritmi 
+-risultati degli algoritmi
+-sarfa sugli algoritmi 
+-robustness (strategia)
+-robustness (outputs) 

@@ -255,7 +255,7 @@ class SACDiscrete_Agent:
               n_checkpoints: int, save_dir: str, max_grad_norm: float, batch_size: int,
               gamma: float = 0.99, tau: float = 0.005):
         
-        seed = seed = int(time.time())
+        seed = np.random.randint(0, 10000)
         threshold = total_steps // n_checkpoints if n_checkpoints > 0 else 0
         c_threshold = threshold
 

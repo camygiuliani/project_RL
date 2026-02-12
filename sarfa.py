@@ -11,7 +11,7 @@ from datetime import datetime
 
 from utils import load_config
 from wrappers import make_env_eval
-from ppo import ActorCriticCNN
+from ppo import ActorCriticCNN, PPO_Agent
 from ddqn import DDQN_Agent,DDQNCNN
 from sac import SACDiscrete_Agent
 
@@ -161,11 +161,10 @@ def blur_heatmap(heat, k=7):
     return out
 
 def sarfa_heatmap_SAC(
-    policy_net, device, obs_input,
-    patch=8, stride=4, fill_mode="mean", batch_size=32,
-    clamp_positive=True, use_action_flip=True, flip_weight=2.0,
-    occlude_only_last_frame=True
-):
+    agent, obs_input, device = None, patch=8, stride=4, fill_mode="mean", batch_size=32,
+    clamp_positive=True, use_action_flip=True, flip_weight=2.0,  occlude_only_last_frame=True):
+
+    device = agent.device if hasattr(agent, "device") else device
     obs = obs_input
     if isinstance(obs, torch.Tensor):
         obs = obs.detach().cpu().numpy()
@@ -187,13 +186,11 @@ def sarfa_heatmap_SAC(
 
     # base action + base logp
     base_logp, _, base_best = ppo_logprobs_batch(
-        policy_net, device, obs[None, ...], actions=None
+        agent, device, obs[None, ...], actions=None
     )
     base_action = int(base_best[0])  # explain argmax action
     base_logp = float(
-        ppo_logprobs_batch(
-            policy_net, device, obs[None, ...], actions=np.array([base_action], dtype=np.int64)
-        )[0][0]
+        ppo_logprobs_batch(agent, device, obs[None, ...], actions=np.array([base_action], dtype=np.int64))[0][0]
     )
 
     coords = [(x, y) for y in range(0, H - patch + 1, stride)
@@ -218,7 +215,7 @@ def sarfa_heatmap_SAC(
                 batch_np[j, y:y+patch, x:x+patch, :] = fill
 
         logp_masked, _, best_masked = ppo_logprobs_batch(
-            policy_net, device, batch_np,
+            agent, device, batch_np,
             actions=np.full((n,), base_action, dtype=np.int64)
         )
 
@@ -239,10 +236,11 @@ def sarfa_heatmap_SAC(
 
 #original patch=8 stride=8
 
-def sarfa_heatmap_PPO(model, device, obs_input, patch=8, stride=4, 
+def sarfa_heatmap_PPO(agent, obs_input, device = None, patch=8, stride=4, 
                               fill_mode="mean", batch_size=32, 
                               clamp_positive=True, use_action_flip=True, flip_weight=2.0):
     
+    device = agent.device if hasattr(agent, "device") else device
     obs = obs_input
     if isinstance(obs, torch.Tensor):
         obs = obs.detach().cpu().numpy()
@@ -269,13 +267,8 @@ def sarfa_heatmap_PPO(model, device, obs_input, patch=8, stride=4,
     
 
     with torch.no_grad():
-        output, _ = model(obs_tensor)
-        
-        if hasattr(output, 'logits'):
-            logits = output.logits
-        else:
-            logits = output 
 
+        logits = agent.get_logits(obs_tensor)
         base_probs = torch.softmax(logits, dim=-1)
         base_action = torch.argmax(base_probs, dim=-1).item()
         base_prob_val = base_probs[0, base_action].item()
@@ -313,13 +306,7 @@ def sarfa_heatmap_PPO(model, device, obs_input, patch=8, stride=4,
        
 
         with torch.no_grad():
-            output_p, _ = model(batch_tensor)
-            
-            if hasattr(output_p, 'logits'):
-                logits_p = output_p.logits
-            else:
-                logits_p = output_p
-            
+            logits_p = agent.get_logits(batch_tensor)      
             probs_p = torch.softmax(logits_p, dim=-1)
         
         # computing sarfa scores
@@ -693,7 +680,6 @@ def main():
         env = make_env_eval(env_id=cfg["env"]["id"], seed=args.seed)
 
     if args.video:
-    # IMPORTANT: frame_skip=1 for video so bullets are visible
         env = make_env_eval(env_id=cfg["env"]["id"], seed=args.seed, frame_skip=1, render_mode="rgb_array")
 
     
@@ -734,10 +720,8 @@ def main():
 
             elif algo == "ppo":
                 print("Loading PPO...")
-                ckpt = torch.load(args.ppo_model, map_location=device)
-                agent = ActorCriticCNN(in_channels=cfg["sarfa"]["ppo"]["in_channels"], n_actions=n_actions).to(device)
-                agent.load_state_dict(ckpt["net"])
-                agent.eval()
+                agent = PPO_Agent(obs_shape=obs_shape, n_actions=n_actions, device=device, env_id=cfg["env"]["id"])
+                agent.load(args.ppo_model)
                 record_sarfa_video(env, agent, "ppo", args, cfg, device, video_path, args.video_length)
 
             elif algo == "sac":
@@ -779,14 +763,13 @@ def main():
 
             elif algo == "ppo":
                 print("Using PPO agent for SARFA...")
-                ckpt = torch.load(args.ppo_model, map_location=device)
-                actor_critic = ActorCriticCNN(in_channels=cfg["sarfa"]["ppo"]["in_channels"],
-                                            n_actions=n_actions).to(device)
-                actor_critic.load_state_dict(ckpt["net"])
-                actor_critic.eval()
-
+                agent = PPO_Agent(obs_shape=obs_shape, n_actions=n_actions, device=device, env_id=cfg["env"]["id"])
+                agent.load(args.ppo_model)
+                
                 heat, action = sarfa_heatmap_PPO(
-                    actor_critic, device, obs,
+                    agent=agent,  
+                    obs_input=obs, 
+                    device=device,
                     patch=args.patch, stride=args.stride,
                     fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
                     batch_size=cfg["sarfa"]["ppo"]["batch_size"]
@@ -798,9 +781,9 @@ def main():
                 agent.load(args.sac_model)
 
                 heat, action = sarfa_heatmap_SAC(
-                    lambda x: sac_policy_logits(agent, x),
-                    device,
-                    obs,
+                    lambda x: sac_policy_logits(agent, x), 
+                    obs_input=obs,
+                    device=device,
                     patch=args.patch,
                     stride=args.stride
                 )

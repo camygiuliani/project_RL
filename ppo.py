@@ -133,6 +133,9 @@ class PPO_Agent:
             values.cpu().numpy()
         ) 
 
+    def get_logits(self, x):
+        logits, _ = self.net(x)
+        return logits
 
 
     @torch.no_grad()
@@ -193,7 +196,7 @@ class PPO_Agent:
                 batch_size=256,max_grad_norm=0.5,vf_coef=0.5,ent_coef=0.01,
                 clip_eps=0.1, log_every=10_000, checkpoint_dir=None, save_dir=None,):
         
-        seed = seed = int(time.time())
+        seed = np.random.randint(0, 10000)
         date = datetime.now().strftime("%Y_%m_%d")
         
         os.makedirs(save_dir, exist_ok=True)

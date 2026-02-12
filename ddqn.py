@@ -123,7 +123,7 @@ class DDQN_Agent:
             l_start:int, train_f:int, target_update:int, checkpoint_dir: str = None, n_checkpoints:int = 0,
             log_every:int=1000, save_dir: str = "runs/ddqn"):
         
-        seed = int(time.time())  
+        seed = np.random.randint(0, 10000) 
         threshold = total_steps//n_checkpoints if n_checkpoints>0 else 0 
         c_threshold = threshold
 
