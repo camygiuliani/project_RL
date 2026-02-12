@@ -6,7 +6,7 @@
 <!--........-->
 
 Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
-## Project structure
+<!-- ## Project structure
 **config.yaml**: global configuration file 
 
 **main.py**: training and evaluation entry point
@@ -18,6 +18,29 @@ Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
 **robustness.py** code for robustness test and boh???
 
 **utils.py** and **wrappers.py** for other functions
+ -->
+
+## Project structure
+
+**Core**
+- `main.py` — training & evaluation entry point  
+- `ddqn.py`, `ppo.py`, `sac.py` — RL agents  
+
+**Interpretability**
+- `sarfa.py` — SARFA visual explanations (heatmaps, comparison grids, videos)
+
+**Robustness**
+- `robustness.py` — patch occlusion tests (random baseline vs SARFA-guided)
+
+**Environment & utilities**
+- `wrappers.py` — environment creation and preprocessing  
+- `utils.py` — common helper functions  
+- `config.yaml` — global configuration
+
+**Outputs**
+- `runs/` — training checkpoints and logs (timestamped)
+- `robustness_outputs/` — robustness results
+- `sarfa_outputs/` — SARFA visual outputs (timestamped)
 
 
 ## Experimental Setup (Summary)
