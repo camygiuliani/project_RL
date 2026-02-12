@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
 import numpy as np
+import matplotlib.pyplot as plt
 from utils import load_config
 from wrappers import make_env_eval
 import torch
@@ -12,11 +13,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 import cv2
 import sarfa
 
-# matplotlib optional
-try:
-    import matplotlib.pyplot as plt
-except Exception:
-    plt = None
+
 
 # =========================
 # Helpers
