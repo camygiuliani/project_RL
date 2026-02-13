@@ -186,11 +186,11 @@ def sarfa_heatmap_SAC(
 
     # base action + base logp
     base_logp, _, base_best = ppo_logprobs_batch(
-        agent, device, obs[None, ...], actions=None
+        agent.actor, device, obs[None, ...], actions=None
     )
     base_action = int(base_best[0])  # explain argmax action
     base_logp = float(
-        ppo_logprobs_batch(agent, device, obs[None, ...], actions=np.array([base_action], dtype=np.int64))[0][0]
+        ppo_logprobs_batch(agent.actor, device, obs[None, ...], actions=np.array([base_action], dtype=np.int64))[0][0]
     )
 
     coords = [(x, y) for y in range(0, H - patch + 1, stride)
@@ -215,7 +215,7 @@ def sarfa_heatmap_SAC(
                 batch_np[j, y:y+patch, x:x+patch, :] = fill
 
         logp_masked, _, best_masked = ppo_logprobs_batch(
-            agent, device, batch_np,
+            agent.actor, device, batch_np,
             actions=np.full((n,), base_action, dtype=np.int64)
         )
 
@@ -597,14 +597,13 @@ def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_s
                 )
             elif algo_name == "ppo":
                 heatmap, action = sarfa_heatmap_PPO(
-                    agent, device, obs_in_sarfa, patch=args.patch, stride=args.stride,
+                    agent, obs_in_sarfa, device, patch=args.patch, stride=args.stride,
                     fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
                     batch_size=cfg["sarfa"]["ppo"]["batch_size"]
                 )
             else:  # sac
                 heatmap, action = sarfa_heatmap_SAC(
-                    lambda x: sac_policy_logits(agent, x),
-                    device, obs_in_sarfa, patch=args.patch, stride=args.stride
+                    agent, obs_in_sarfa, device, patch=args.patch, stride=args.stride
                 )
 
             # normalize heatmap 0..1
