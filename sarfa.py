@@ -660,7 +660,7 @@ def main():
     parser.add_argument("--ddqn_model", type=str, default=cfg["ddqn"]["path_best_model"])
     parser.add_argument("--ppo_model", type=str, default=cfg["ppo"]["path_best_model"])
     parser.add_argument("--sac_model", type=str, default=cfg["sac"]["path_best_model"])
-    parser.add_argument("--snap_steps", type=int, nargs="+", default=[50, 600, 1500],
+    parser.add_argument("--snap_steps", type=int, nargs="+", default=[200, 1250, 2000],
                     help="Environment steps (after reset) at which to take SARFA snapshots (early/mid/late).")
     parser.add_argument("--snap_names", type=str, nargs="+", default=["early", "mid", "late"],
                     help="Names for snapshots; must match snap_steps length.")
@@ -704,89 +704,52 @@ def main():
 
 
     # === VIDEO GENERATION BLOCK ===
-    if args.video:
-        algos_to_run = ["ddqn", "ppo", "sac"] if args.algo == "all" else [args.algo]
-        
-        for algo in algos_to_run:
-            video_path = os.path.join(outdir, f"video_sarfa_{algo}_{time}.mp4")
-            
-            # Load specific agent
-            if algo == "ddqn":
-                print("Loading DDQN...")
-                agent = DDQN_Agent(env, obs_shape[0], obs_shape, n_actions, device, double_dqn=True)
-                agent.load(args.ddqn_model)
-                record_sarfa_video(env, agent, "ddqn", args, cfg, device, video_path, args.video_length)
-
-            elif algo == "ppo":
-                print("Loading PPO...")
-                agent = PPO_Agent(obs_shape=obs_shape, n_actions=n_actions, device=device, env_id=cfg["env"]["id"])
-                agent.load(args.ppo_model)
-                record_sarfa_video(env, agent, "ppo", args, cfg, device, video_path, args.video_length)
-
-            elif algo == "sac":
-                print("Loading SAC...")
-                agent = SACDiscrete_Agent(obs_shape=obs_shape, n_actions=n_actions, device=device, env_id=cfg["env"]["id"])
-                agent.load(args.sac_model)
-                record_sarfa_video(env, agent, "sac", args, cfg, device, video_path, args.video_length)
-                
-        env.close()
-        return
-  
-    algos_to_run = ["ddqn", "ppo", "sac"] if args.algo in ["all"] else [args.algo]
+    
+    algos_to_run = ["ddqn", "ppo", "sac"] if args.algo == "all" else [args.algo]
     grid_paths = {}
 
+    for algo in algos_to_run:
+        print(f"\n=== Loading {algo.upper()} Agent ===")
+        
+        if algo == "ddqn":
+            agent = DDQN_Agent(env, obs_shape[0], obs_shape, n_actions, device, double_dqn=True)
+            if args.ddqn_model: agent.load(args.ddqn_model)
+        elif algo == "ppo":
+            agent = PPO_Agent(obs_shape=obs_shape, n_actions=n_actions, device=device, env_id=cfg["env"]["id"])
+            if args.ppo_model: agent.load(args.ppo_model)
+        elif algo == "sac":
+            agent = SACDiscrete_Agent(obs_shape=obs_shape, n_actions=n_actions, device=device, env_id=cfg["env"]["id"])
+            if args.sac_model: agent.load(args.sac_model)
+        
+        if args.video:
+            video_path = os.path.join(outdir, f"video_sarfa_{algo}_{time}.mp4")
+            record_sarfa_video(env, agent, algo, args, cfg, device, video_path, args.video_length)
 
-    for (t, obs, rgb_bg) in snapshots:
-        snap_name = step_to_name.get(t, f"t{t}")
-        print(f"\n=== Snapshot {snap_name} (step={t}) ===")
+        print(f"Computing SARFA heatmaps for {algo}...")
+        for (t, obs, rgb_bg) in snapshots:
+            snap_name = step_to_name.get(t, f"t{t}")
 
-        saved_paths = []
-
-        for algo in algos_to_run:
             if algo == "ddqn":
-                print("Using DDQN agent for SARFA...")
-                agent = DDQN_Agent(env, obs_shape[0], obs_shape, n_actions, device, double_dqn=True)
-                agent.load(args.ddqn_model)
-
                 heat, action = sarfa_heatmap_DDQN(
-                    agent, obs,
-                    patch=args.patch,
-                    stride=args.stride, 
-                    fill_mode="mean",
+                    agent, obs, patch=args.patch, stride=args.stride, fill_mode="mean",
                     batch_size=cfg["sarfa"]["ddqn"]["batch_size"],
                     use_advantage=cfg["sarfa"]["ddqn"]["use_advantage"],
                     clamp_positive=cfg["sarfa"]["ddqn"]["clamp_positive"],
                     use_action_flip=cfg["sarfa"]["ddqn"]["use_action_flip"],
                     flip_weight=cfg["sarfa"]["ddqn"]["flip_weight"]
                 )
-
             elif algo == "ppo":
-                print("Using PPO agent for SARFA...")
-                agent = PPO_Agent(obs_shape=obs_shape, n_actions=n_actions, device=device, env_id=cfg["env"]["id"])
-                agent.load(args.ppo_model)
-                
                 heat, action = sarfa_heatmap_PPO(
-                    agent=agent,  
-                    obs_input=obs, 
-                    device=device,
-                    patch=args.patch, stride=args.stride,
+                    agent, obs, device=device, patch=args.patch, stride=args.stride,
                     fill_mode=cfg["sarfa"]["ppo"]["fill_mode"],
                     batch_size=cfg["sarfa"]["ppo"]["batch_size"]
                 )
-
-            else:  # sac
-                print("Using SAC agent for SARFA...")
-                agent = SACDiscrete_Agent(obs_shape=obs.shape, n_actions=n_actions, device=device, env_id=cfg["env"]["id"])
-                agent.load(args.sac_model)
-
+            else: 
                 heat, action = sarfa_heatmap_SAC(
-                    lambda x: sac_policy_logits(agent, x), 
-                    obs_input=obs,
-                    device=device,
-                    patch=args.patch,
-                    stride=args.stride
+                    agent, obs, device=device, patch=args.patch, stride=args.stride
                 )
 
+            # Visualization
             heat_vis = blur_heatmap(heat, k=7)
             if heat_vis.max() > 0:
                 heat_vis = (heat_vis - heat_vis.min()) / (heat_vis.max() - heat_vis.min() + 1e-8)
@@ -794,11 +757,9 @@ def main():
                 heat_vis[heat_vis < thr] = 0.0
 
             rgb = rgb_bg
-            if hasattr(rgb, "detach"):
-                rgb = rgb.detach().cpu().numpy()
+            if hasattr(rgb, "detach"): rgb = rgb.detach().cpu().numpy()
             rgb = np.array(rgb)
-            if len(rgb.shape) == 2:
-                rgb = np.stack([rgb]*3, axis=-1)
+            if len(rgb.shape) == 2: rgb = np.stack([rgb]*3, axis=-1)
             if rgb.shape[:2] != heat_vis.shape:
                 heat_vis = cv2.resize(heat_vis, (rgb.shape[1], rgb.shape[0]), interpolation=cv2.INTER_NEAREST)
 
@@ -816,30 +777,23 @@ def main():
             plt.savefig(png_path, dpi=200, bbox_inches="tight", pad_inches=0)
             plt.close()
             print(f"[SARFA] Saved: {png_path}")
-            saved_paths.append(png_path)
 
             grid_paths.setdefault(snap_name, {})[algo] = png_path
 
-
-        # side-by-side per snapshot
-        if len(saved_paths) == 3:
+    print("\nGenerating composite comparisons...")
+    for snap_name, paths_dict in grid_paths.items():
+        if len(paths_dict) == 3:
             combo_path = os.path.join(outdir, f"sarfa_{snap_name}_ALL_{time}.png")
-            _save_side_by_side(saved_paths, combo_path)
+            path_list = [paths_dict[a] for a in ["ddqn", "ppo", "sac"]]
+            _save_side_by_side(path_list, combo_path)
             print(f"[SARFA] Saved side-by-side: {combo_path}")
 
-        # final 3x3 grid
-        # if user asked for all, save a single 3x3 grid (early/mid/late x ddqn/ppo/sac)
-        if args.algo == "all":
-            snap_order = args.snap_names  # ["early","mid","late"]
-            algo_order = ["ddqn", "ppo", "sac"]
-            grid_out = os.path.join(outdir, f"sarfa_GRID_{time}.png")
-            _save_grid_3x3(grid_paths, snap_order, algo_order, grid_out)
-            print(f"[SARFA] Saved 3x3 grid: {grid_out}")
+    if args.algo == "all":
+        grid_out = os.path.join(outdir, f"sarfa_GRID_{time}.png")
+        _save_grid_3x3(grid_paths, args.snap_names, ["ddqn", "ppo", "sac"], grid_out)
+        print(f"[SARFA] Saved 3x3 grid: {grid_out}")
 
-            
-        env.close()
-    
-    
+    env.close()
 
 if __name__ == "__main__":
     main()

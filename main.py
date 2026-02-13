@@ -13,10 +13,8 @@ from utils import load_config
 from ddqn import DDQN_Agent
 from wrappers import make_env
 from ppo import PPO_Agent
-from sac import SACDiscrete_Agent 
-
-
-
+from sac import SACDiscrete_Agent
+import matplotlib.pyplot as plt 
 
 def main():
 
@@ -75,8 +73,7 @@ def main():
                                   lr= cfg["ppo"]["lr"],
                                   gamma=cfg["ppo"]["gamma"],
                                   gae_lambda=cfg["ppo"]["gae_lambda"],
-                                  rollout_len=cfg["ppo"]["rollout_steps"],
-                                  alpha=cfg["ppo"]["alpha"])
+                                  rollout_len=cfg["ppo"]["rollout_steps"])
             info="PPO"   
            
         
