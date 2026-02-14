@@ -71,6 +71,8 @@ source venv/bin/activate
 ```
 ### 3. Install dependencies
 ```bash
+sudo apt update
+sudo apt upgrade
 pip install -r requirements.txt
 ```
 
@@ -123,8 +125,13 @@ Choose one algorithm at a time. Evaluation reports mean and standard deviation o
 
 Evaluation outputs are saved under:  `runs/<algorithm>/` and are further organized into timestamped subfolders.
 
+### 7. Compare evaluation (DDQN vs PPO vs SAC)
+```bash
+python3 compare_eval.py
+```
+Evaluation results from `compare_eval.py` are saved in the `runs/` directory
 
-### 7a. Run SARFA explanations (snapshots)
+### 8a. Run SARFA explanations (snapshots)
 SARFA visual explanations can be generated for each trained agent. Choose one algorithm at a time:
 ```bash
 python3 sarfa.py --algo ddqn
@@ -140,7 +147,7 @@ python3 sarfa.py --algo all
 Generated heatmaps are saved under `sarfa_outputs/` and are further organized into timestamped subfolders.
 
 
-### 7b. Run SARFA explanations (single full-screen video + colored heatmap overlay)
+### 8b. Run SARFA explanations (single full-screen video + colored heatmap overlay)
 ```bash
 python3 sarfa.py --algo ddqn --video
 python3 sarfa.py --algo ppo --video 
@@ -151,7 +158,7 @@ python3 sarfa.py --algo sac --video
 The videos are saved under `sarfa_outputs/` and are further organized into timestamped subfolders.
 
 
-### 8. Robustness analysis
+### 9. Robustness analysis
 
 
 ```bash
@@ -170,11 +177,9 @@ python3 robustness.py --algo <ddqn|ppo|sac> --run_sarfa --run_degrad
 Robustness outputs are saved under:  `robustness_outputs/<algorithm>/` and are further organized into timestamped subfolders.
 
 
-### 9. Compare evaluation (DDQN vs PPO vs SAC)
-```bash
-python3 compare_eval.py
-```
-Evaluation results from `compare_eval.py` are saved in the `runs/` directory
+
+
+
 ## Hardware notes
 -GPU acceleration (CUDA) is supported but not required
 
@@ -192,3 +197,5 @@ MIT License — see [LICENSE](LICENSE).
 - [3] [Soft Actor-Critic Algorithms and Applications](https://arxiv.org/pdf/1812.05905)
 - [4] [Proximal Policy Optimization Algorithms](https://arxiv.org/abs/1707.06347)
 - [5] [Human-level control through deep reinforcement learning](https://www.nature.com/articles/nature14236)
+- [6] [SpaceInvaders Gymansium documentation](https://gymnasium.farama.org/v0.26.3/environments/atari/space_invaders/)
+- [7] [Medium article: “Double DQN” (qempsil0914)](https://medium.com/@qempsil0914/deep-q-learning-part2-double-deep-q-network-double-dqn-b8fc9212bbb2)
