@@ -117,7 +117,7 @@ def compare_algorithms(env_id: str,ddqn_path: str, ppo_path: str, sac_path: str,
     plt.tight_layout()
     
     # Save the plot
-    path = os.path.join("./outputs")
+    path = os.path.join("./runs")
     os.makedirs(path, exist_ok=True)
     output_file = os.path.join(path, "comparison_results.png")
     plt.savefig(output_file)
