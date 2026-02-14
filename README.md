@@ -87,6 +87,8 @@ All hyperparameters, paths, and experimental settings are defined in a single co
 
 -checkpoint paths
 
+-best trained model path (for each algorithm)
+
 -SARFA parameters
 
 -some `robustness.py` parameters
@@ -133,6 +135,8 @@ python3 sarfa.py --algo sac
 ```bash
 python3 sarfa.py --algo all
 ```   
+> By deafault, SARFA is performed using best models paths defined in `config.yaml`
+
 > Additional hyperparameters and settings can be customized in `config.yaml` and directly in `sarfa.py`.
 
 Generated heatmaps are saved under `sarfa_outputs/` and are further organized into timestamped subfolders.
