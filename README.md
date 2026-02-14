@@ -39,9 +39,10 @@ Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
 - `config.yaml` — global configuration
 
 **Outputs**
-- `runs/` — training checkpoints and logs (timestamped)
+- `runs/` — trained models, training and evaluation logs  (timestamped)
 - `robustness_outputs/` — robustness results
 - `sarfa_outputs/` — SARFA visual outputs (timestamped)
+- `checkpoints/` - intermidiate checkpoints of trained models (timestamped)
 
 
 ## Experimental Setup (Summary)
@@ -94,6 +95,8 @@ All hyperparameters, paths, and experimental settings are defined in a single co
 -checkpoint paths
 
 -SARFA parameters
+
+-some `robustness.py` parameters
 
 ### 5. Train an agent
 Training is handled via **main.py**.
@@ -148,7 +151,7 @@ python3 sarfa.py --algo sac --video
 The videos are saved under `sarfa_outputs/` and are further organized into timestamped subfolders.
 
 
-### 8 Robustness analysis
+### 8. Robustness analysis
 
 
 ```bash
@@ -158,13 +161,20 @@ To enable the SARFA-guided occlusion condition, add:
 ```bash
 python3 robustness.py --algo <ddqn|ppo|sac> --run_sarfa
 ```
+To test robustness on increasing number of patches, run:
+```bash
+python3 robustness.py --algo <ddqn|ppo|sac> --run_sarfa --run_degrad
+```
 > Additional hyperparameters and settings can be customized in `config.yaml` and directly in `robustness.py`.
 
 Robustness outputs are saved under:  `robustness_outputs/<algorithm>/` and are further organized into timestamped subfolders.
 
 
-
-
+### 9. Compare evaluation (DDQN vs PPO vs SAC)
+```bash
+python3 compare_eval.py
+```
+Evaluation results from `compare_eval.py` are saved in the `runs/` directory
 ## Hardware notes
 -GPU acceleration (CUDA) is supported but not required
 
