@@ -6,19 +6,8 @@
 <!--........-->
 
 Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
-<!-- ## Project structure
-**config.yaml**: global configuration file 
 
-**main.py**: training and evaluation entry point
-
-**dqn.py, ppo.py, sac.py**: RL algorithm implementations
-
-**sarfa.py**: SARFA-based visual explanations
-
-**robustness.py** code for robustness test and boh???
-
-**utils.py** and **wrappers.py** for other functions
- -->
+Exame date: 16th February 2026
 
 ## Project structure
 
@@ -61,7 +50,7 @@ Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
 ## How to run the code
 ### 1. Clone the repository
 ```bash
-git clone https://github.com/USERNAME/project_RL.git
+git clone https://github.com/camygiuliani/project_RL.git
 cd project_RL
 ```
 
@@ -104,7 +93,7 @@ All hyperparameters, paths, and experimental settings are defined in a single co
 
 ### 5. Train an agent
 Training is handled via **main.py**.
-Choose one algorithm at a time.
+Choose one algorithm at a time:
 
 ```bash
 python3 main.py --train --ddqn 
@@ -181,7 +170,7 @@ python3 robustness.py --algo <ddqn|ppo|sac> --run_sarfa --run_degrad
 ```
 > Additional hyperparameters and settings can be customized in `config.yaml` and directly in `robustness.py`.
 
-Robustness outputs are saved under:  `robustness_outputs/<algorithm>/` and are further organized into timestamped subfolders.
+Robustness outputs are saved under:  `robustness_outputs/<algorithm>/`.
 
 
 
