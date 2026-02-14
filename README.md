@@ -52,6 +52,7 @@ Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
 - **State representation:** 84×84 grayscale frames with **4-frame stacking**
 - **Action space:** 6 discrete actions
 - **Agents compared:** **DDQN**, **PPO**, **SAC (discrete)**
+- **Evaluation:** mean ± std return over multiple episodes + comparison plot
 - **Interpretability:** **SARFA** visual explanations (heatmaps + video overlays)
 - **Robustness evaluation:** patch occlusion tests (**random baseline** vs **SARFA-guided top-K occlusion**)
 
