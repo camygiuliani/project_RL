@@ -24,7 +24,8 @@ Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
 
 **Core**
 - `main.py` — training & evaluation entry point  
-- `ddqn.py`, `ppo.py`, `sac.py` — RL agents  
+- `ddqn.py`, `ppo.py`, `sac.py` — RL agents
+- `compare_eval.py` — comparative results for all the agents  
 
 **Interpretability**
 - `sarfa.py` — SARFA visual explanations (heatmaps, comparison grids, videos)
