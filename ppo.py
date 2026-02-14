@@ -18,7 +18,6 @@ class ActorCriticCNN(nn.Module):
             nn.Conv2d(32, 64, kernel_size=4, stride=2), nn.ReLU(),
             nn.Conv2d(64, 64, kernel_size=3, stride=1), nn.ReLU(),
         )
-        # For 84x84 Atari convs -> 7x7x64 = 3136
         self.fc = nn.Sequential(
             nn.Flatten(),
             nn.Linear(3136, 512), nn.ReLU(),
@@ -59,8 +58,6 @@ class PPO_Agent:
             gae_lambda=self.gae_lambda,
         )
 
-        #np.random.seed(self.seed)
-        #torch.manual_seed(self.seed)
     
     def preprocess_obs(self, obs_uint8):
         x = torch.as_tensor(obs_uint8, device=self.device).float()
@@ -74,7 +71,6 @@ class PPO_Agent:
             else:
                 raise ValueError(f"Unknown obs shape: {tuple(x.shape)}")
 
-        # Batch obs: NCHW or NHWC
         elif x.ndim == 4:
             if x.shape[1] in (1, 4):                 # NCHW
                 pass
@@ -90,9 +86,7 @@ class PPO_Agent:
     
     @torch.no_grad()
     def act(self, obs_uint8):
-        # Se per qualche motivo arriva una batch, prendi la prima
-        x = self.preprocess_obs(obs_uint8)   # ora deve diventare (1,4,84,84)
-        #print("Input shape to net:", x.shape)
+        x = self.preprocess_obs(obs_uint8)   # to (1,4,84,84)
 
         logits, values = self.net(x)
         dist = torch.distributions.Categorical(logits=logits)
@@ -118,7 +112,7 @@ class PPO_Agent:
 
     def update(self, update_epochs=None,  batch_size=None, max_grad_norm=None, 
                vf_coef=None, ent_coef=None, clip_eps=None):
-        # to torch
+        
         losses = []
         obs_t = torch.from_numpy(self.buffer.obs).to(self.device).float() / 255.0
         actions_t = torch.from_numpy(self.buffer.actions).to(self.device)
@@ -177,9 +171,6 @@ class PPO_Agent:
 
         final_path = os.path.join(outdir_runs, f"ppo_{total_steps}.pt")
         final_path_csv = os.path.join(outdir_runs, f"metrics_train_{total_steps}.csv")
-
-        #env = make_env(env_id=self.env_id, seed=seed)
-        #obs, _ = env.reset(seed=seed)
 
         env = make_vec_env(self.env_id, self.n_envs, seed)
         obs, _ = env.reset()
@@ -280,7 +271,7 @@ class PPO_Agent:
                         f"Ent={logs['entropy']:.3f} "
                         f"LR={lr_now:.6f}"
                     )
-                    # Aggiorniamo il contatore all'ultimo valore stampato
+    
                     last_log_steps = env_steps
 
                 # ---------- CHECKPOINT ----------

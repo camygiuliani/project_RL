@@ -12,7 +12,6 @@ from wrappers import make_env, make_env_eval
 
 
 class SacCNN(nn.Module):
-    """Atari-style CNN encoder (like DQN) + MLP head."""
     def __init__(self, in_channels: int, n_actions: int):
         super().__init__()
         self.conv = nn.Sequential(
@@ -34,13 +33,6 @@ class SacCNN(nn.Module):
     
     
 class SACDiscrete_Agent:
-    """
-    Discrete SAC (Atari-friendly).
-    - Off-policy (ReplayBuffer)
-    - Actor: pi(a|s) categorical
-    - Critic: two Q networks, target Q networks
-    """
-
     def __init__(self, obs_shape, n_actions: int, device: torch.device, 
                     env_id="ALE/SpaceInvaders-v5",
                     actor_lr: float = 3e-4,
@@ -58,7 +50,7 @@ class SACDiscrete_Agent:
         elif obs_shape[-1] == 4:
             C = obs_shape[-1]
         else:
-            raise ValueError(f"Formato osservazione non supportato: {obs_shape}")
+            raise ValueError(f"Unknown obs shape: {obs_shape}")
 
         self.target_entropy = 0.7 * np.log(n_actions)
         self.log_alpha = torch.zeros(1, requires_grad=True, device=device)
@@ -104,9 +96,6 @@ class SACDiscrete_Agent:
     
     @torch.no_grad()
     def act(self, obs_uint8: np.ndarray, deterministic: bool = False) -> int:
-        """
-        obs_uint8: (84,84,4) uint8
-        """
         x = self.preprocess_obs(obs_uint8)
         
         logits = self.actor(x)
@@ -123,12 +112,7 @@ class SACDiscrete_Agent:
             pt.data.add_(tau * p.data)
 
     def _policy_probs_and_logp(self, logits: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
-        """
-        logits: (N,A)
-        returns:
-          probs: (N,A)
-          log_probs: (N,A)
-        """
+
         log_probs = F.log_softmax(logits, dim=1)
         probs = torch.exp(log_probs)
         return probs, log_probs
@@ -137,10 +121,6 @@ class SACDiscrete_Agent:
         return len(self.replay) >= batch_size
 
     def update(self, max_grad_norm: float, batch_size: int, gamma, tau) -> dict:
-        """
-        One SAC update step (critic(s) + actor + target soft update).
-        Returns a dict of losses for logging.
-        """
         if not self.can_update(batch_size= batch_size):
             return {}
 
@@ -167,18 +147,13 @@ class SACDiscrete_Agent:
             #     y = r + gamma*(1-done)*V(s')
             y = rewards + gamma * (1.0 - dones) * v_next      
 
-        # -----------------------
-        # Critic losses
-        # We regress Q(s,a) to y.
-        # -----------------------
+
         q1_all = self.q1(obs)                              
         q2_all = self.q2(obs)
         q1_sa = q1_all.gather(1, actions.view(-1, 1)).squeeze(1)
         q2_sa = q2_all.gather(1, actions.view(-1, 1)).squeeze(1)
 
-        #1.3) minimize MSE loss 
-        #q1_loss = F.mse_loss(q1_sa, y)
-        #q2_loss = F.mse_loss(q2_sa, y)
+        #1.3) minimize loss 
         q1_loss = F.smooth_l1_loss(q1_sa, y)
         q2_loss = F.smooth_l1_loss(q2_sa, y)
 
@@ -239,9 +214,6 @@ class SACDiscrete_Agent:
 
     def update_many(self, n_updates: int, gamma: float, tau: float, 
                     max_grad_norm: float, batch_size: int) -> dict:
-        """
-        Run multiple update steps (useful: updates_per_step).
-        """
         logs = {}
         for _ in range(n_updates):
             out = self.update(max_grad_norm= max_grad_norm, batch_size= batch_size, gamma= gamma, tau= tau)
@@ -441,9 +413,6 @@ class SACDiscrete_Agent:
 
 class ReplayBuffer:
     def __init__(self, obs_shape, size: int, device: torch.device):
-        """
-        obs_shape: (H,W,C) with C=4 (uint8)
-        """
         self.size = int(size)
         self.device = device
 

@@ -2,47 +2,30 @@ import matplotlib.pyplot as plt
 import numpy as np
 import torch
 import os
-
-# Import your specific agent classes
 from ddqn import DDQN_Agent
 from ppo import PPO_Agent
 from sac import SACDiscrete_Agent
 from utils import load_config
-from wrappers import make_env  # Required to detect environment shape
+from wrappers import make_env
 
-def compare_algorithms(
-    env_id: str,
-    ddqn_path: str,
-    ppo_path: str,
-    sac_path: str,
-    n_episodes: int = 10,
-    cfg = None,
-    device: str = "cuda" if torch.cuda.is_available() else "cpu"
-):
-    """
-    Instantiates DDQN, PPO, and SAC agents, loads their checkpoints,
-    runs evaluation episodes, and plots a comparative graph with error bars.
-    """
+def compare_algorithms(env_id: str,ddqn_path: str, ppo_path: str, sac_path: str,
+                       n_episodes: int = 10, cfg = None, device: str = "cuda" if torch.cuda.is_available() else "cpu"):
     device = torch.device(device)
     print(f"--- Starting Comparison on {device} using {n_episodes} episodes ---")
 
-    # 1. Detect Environment Shape (Crucial for initializing agents)
-    # We create a dummy env briefly to get the observation shape and action count
     temp_env = make_env(env_id)
     obs_shape = temp_env.observation_space.shape
     n_actions = temp_env.action_space.n
     temp_env.close()
     
-    # Determine channels for DDQN (usually index 0 for PyTorch style or -1 for HWC)
-    n_channels = obs_shape[0] if obs_shape[0] in [1, 4] else obs_shape[-1]
     
     print(f"Environment: {env_id} | Obs: {obs_shape} | Actions: {n_actions}")
 
     # Store results here
     results = {
-        "DDQN": {"mean": 0.0, "std": 0.0, "color": "#1f77b4"}, # Blue
-        "PPO":  {"mean": 0.0, "std": 0.0, "color": "#ff7f0e"}, # Orange
-        "SAC":  {"mean": 0.0, "std": 0.0, "color": "#2ca02c"}  # Green
+        "DDQN": {"mean": 0.0, "std": 0.0, "color": "#1f77b4"}, 
+        "PPO":  {"mean": 0.0, "std": 0.0, "color": "#ff7f0e"}, 
+        "SAC":  {"mean": 0.0, "std": 0.0, "color": "#2ca02c"}  
     }
 
     if ddqn_path and os.path.exists(ddqn_path):
@@ -56,7 +39,7 @@ def compare_algorithms(
                             lr=cfg['ddqn']['lr'],
                             double_dqn=True)        
         
-        mean_r, std_r = agent.eval(seed=42, n_episodes=n_episodes, path=ddqn_path)
+        mean_r, std_r = agent.eval(seed=cfg["eval"]["seed"], n_episodes=n_episodes, path=ddqn_path)
         results["DDQN"]["mean"] = mean_r
         results["DDQN"]["std"] = std_r
     else:
@@ -74,7 +57,7 @@ def compare_algorithms(
                         gae_lambda=cfg["ppo"]["gae_lambda"],
                         rollout_len=cfg["ppo"]["rollout_steps"])
         
-        mean_r, std_r = agent.eval(seed=42, n_episodes=n_episodes, path=ppo_path)
+        mean_r, std_r = agent.eval(seed=cfg["eval"]["seed"], n_episodes=n_episodes, path=ppo_path)
         results["PPO"]["mean"] = mean_r
         results["PPO"]["std"] = std_r
     else:
@@ -90,7 +73,7 @@ def compare_algorithms(
                                 critic_lr= cfg['sac']['critic_lr'],
                                 replay_size = cfg['sac']['replay_size'])
         
-        mean_r, std_r = agent.eval(seed=42, n_episodes=n_episodes, path=sac_path)
+        mean_r, std_r = agent.eval(seed=cfg["eval"]["seed"], n_episodes=n_episodes, path=sac_path)
         results["SAC"]["mean"] = mean_r
         results["SAC"]["std"] = std_r
     else:
@@ -103,7 +86,6 @@ def compare_algorithms(
     stds = []
     colors = []
 
-    # Filter out algorithms that weren't run (mean is 0)
     for algo, data in results.items():
         if data["mean"] != 0 or data["std"] != 0:
             names.append(algo)
@@ -127,7 +109,7 @@ def compare_algorithms(
         height = bar.get_height()
         plt.text(
             bar.get_x() + bar.get_width()/2., 
-            height + (max(stds) * 0.1), # Offset slightly above the error bar
+            height + (max(stds) * 0.1), 
             f'{height:.2f}', 
             ha='center', va='bottom', fontweight='bold'
         )
@@ -141,7 +123,6 @@ def compare_algorithms(
     plt.savefig(output_file)
     print(f"Graph saved as '{output_file}'")
 
-# --- Example of how to run it ---
 if __name__ == "__main__":
     
     cfg = load_config("config.yaml")

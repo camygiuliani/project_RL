@@ -7,8 +7,6 @@ import os
 import argparse
 import cv2
 from datetime import datetime
-
-
 from utils import load_config
 from wrappers import make_env_eval
 from ppo import ActorCriticCNN, PPO_Agent
@@ -17,21 +15,15 @@ from sac import SACDiscrete_Agent
 
 
 def _get_fill_value(obs_uint8, mode="mean"):
-    # here we decide how to fill the occluded patch
     if mode == "zero":
         return 0
-    # mean for channel (shape (1,1,4)) then broadcast
     fill = obs_uint8.mean(axis=(0, 1), keepdims=True)
     return fill.astype(obs_uint8.dtype)
 
 
-@torch.no_grad()  #function is more efficient without gradient tracking
+@torch.no_grad()
 def q_values_batch(agent, obs_uint8_batch):
     #compute Q values for a batch of observations
-    """
-    obs_uint8_batch: (N,H,W,4) uint8
-    returns: (N,A) numpy float
-    """
     x = torch.from_numpy(obs_uint8_batch).to(agent.device)
     x = x.permute(0, 3, 1, 2).float() / 255.0  # NCHW
     q = agent.q(x)  # (N,A)
@@ -115,16 +107,6 @@ def sarfa_heatmap_DDQN(agent, obs_input, patch=8, stride=4,
 
 @torch.no_grad()
 def ppo_logprobs_batch(actor_critic_net, device, obs_uint8_batch, actions=None):
-    """
-    actor_critic_net: your ActorCriticCNN (from ppo_agent.py), already on device
-    obs_uint8_batch: (N,H,W,4) uint8
-    actions: optional (N,) int actions. If None, we use argmax of policy logits.
-
-    Returns:
-      logp: (N,) float  log pi(a|s) for chosen action
-      chosen_actions: (N,) int
-      best_actions: (N,) int  argmax_a pi(a|s)
-    """
     x = torch.from_numpy(obs_uint8_batch).to(device)
     x = x.permute(0, 3, 1, 2).float() / 255.0  # NCHW
 
@@ -188,7 +170,7 @@ def sarfa_heatmap_SAC(
     base_logp, _, base_best = ppo_logprobs_batch(
         agent.actor, device, obs[None, ...], actions=None
     )
-    base_action = int(base_best[0])  # explain argmax action
+    base_action = int(base_best[0])
     base_logp = float(
         ppo_logprobs_batch(agent.actor, device, obs[None, ...], actions=np.array([base_action], dtype=np.int64))[0][0]
     )
@@ -233,8 +215,6 @@ def sarfa_heatmap_SAC(
 
     return heatmap, base_action
 
-
-#original patch=8 stride=8
 
 def sarfa_heatmap_PPO(agent, obs_input, device = None, patch=8, stride=4, 
                               fill_mode="mean", batch_size=32, 
@@ -291,8 +271,7 @@ def sarfa_heatmap_PPO(agent, obs_input, device = None, patch=8, stride=4,
         chunk = coords[i:i+batch_size]
         n_chunk = len(chunk)
 
-        # creating numpy batch (Batch, H, W, C)
-        
+        # creating numpy batch (Batch, H, W, C) 
         batch_np = np.repeat(obs[None, ...], n_chunk, axis=0).copy()
 
         # applying masks (deep masking on all channels)
@@ -327,7 +306,7 @@ def sarfa_heatmap_PPO(agent, obs_input, device = None, patch=8, stride=4,
 
 @torch.no_grad()
 def sac_policy_logits(agent, obs_batch):
-    # obs_batch può essere np.ndarray o torch.Tensor
+
     if isinstance(obs_batch, torch.Tensor):
         x = obs_batch.to(agent.device)
     else:
@@ -338,6 +317,7 @@ def sac_policy_logits(agent, obs_batch):
         x = x.float()
 
     # --- Detect layout and fix ---
+
     # Case A: already NCHW (N,4,84,84)
     if x.ndim == 4 and x.shape[1] == 4:
         pass  # ok
@@ -378,11 +358,6 @@ def _save_side_by_side(image_paths, out_path):
     cv2.imwrite(out_path, combo)
 
 def _extract_ale_rgb(env):
-    """
-    Returns the true game RGB frame (210x160x3) from ALE if possible,
-    otherwise falls back to env.render().
-    This avoids "double bullets"/ghosting artifacts.
-    """
     # Unwrap to base env that has ALE
     e = env
     while hasattr(e, "env"):
@@ -411,10 +386,6 @@ def _extract_ale_rgb(env):
 
 
 def _collect_snapshots(env, seed, snap_steps):
-    """
-    Returns list of tuples: (obs_uint8, rgb_bg) for each step in snap_steps.
-    Uses random actions to advance the env.
-    """
     obs, _ = env.reset(seed=seed)
     snaps = []
     max_step = max(snap_steps)
@@ -442,11 +413,6 @@ def _collect_snapshots(env, seed, snap_steps):
 
 
 def _save_grid_3x3(grid_paths, snap_order, algo_order, out_path):
-    """
-    grid_paths: dict like grid_paths[snap_name][algo] = png_path
-    snap_order: ["early","mid","late"]
-    algo_order: ["ddqn","ppo","sac"]
-    """
     fig, axes = plt.subplots(len(snap_order), len(algo_order), figsize=(15, 15))
 
     for i, snap in enumerate(snap_order):
@@ -489,11 +455,6 @@ def _get_agent_obs_view(observation):
         return img
 
 def overlay_sarfa_contours(frame_bgr, heatmap_84, thr=0.25):
-    """
-    frame_bgr: (210,160,3)
-    heatmap_84: (84,84) in [0,1]
-    Draws contours of salient regions so bullets/HUD remain visible.
-    """
     h, w = frame_bgr.shape[:2]
     hm = cv2.resize(heatmap_84, (w, h), interpolation=cv2.INTER_NEAREST)
     mask = (hm >= thr).astype(np.uint8) * 255
@@ -509,10 +470,6 @@ def overlay_sarfa_contours(frame_bgr, heatmap_84, thr=0.25):
     return out
 
 def overlay_sarfa_colormap(frame_bgr, heatmap_84, thr=0.15, alpha_max=0.45, preserve_bright=True):
-    """
-    frame_bgr: (H,W,3) uint8 BGR
-    heatmap_84: (84,84) float in [0,1] (o simile)
-    """
     h, w = frame_bgr.shape[:2]
 
     # resize heatmap to frame size
@@ -611,7 +568,6 @@ def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_s
             if heatmap.max() > 0:
                 heatmap = (heatmap - heatmap.min()) / (heatmap.max() - heatmap.min() + 1e-8)
 
-            # --- repeat same action 4 times, BUT save every frame ---
             for _ in range(ACTION_REPEAT):
                 obs, _, terminated, truncated, _ = env.step(action)
                 step += 1
@@ -623,10 +579,8 @@ def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_s
 
                 frame = cv2.cvtColor(rgb, cv2.COLOR_RGB2BGR)
 
-                # overlay NON distruttivo: contorni (bullets restano)
                 #frame = overlay_sarfa_contours(frame, heatmap, thr=0.25)
                 frame = overlay_sarfa_colormap(frame, heatmap, thr=0.30, alpha_max=0.45, preserve_bright=True)
-
 
                 # upscale for readability
                 frame = cv2.resize(frame, (OUT_W, OUT_H), interpolation=cv2.INTER_NEAREST)
@@ -648,7 +602,6 @@ def record_sarfa_video(env, agent, algo_name, args, cfg, device, out_path, max_s
 
 def main():
 
-    # load config from config.yaml
     cfg = load_config("config.yaml")
     
     parser = argparse.ArgumentParser()
@@ -682,14 +635,14 @@ def main():
         env = make_env_eval(env_id=cfg["env"]["id"], seed=args.seed, frame_skip=1, render_mode="rgb_array")
 
     
-    # --- Collect early/mid/late snapshots ---
+    #Collect early/mid/late snapshots
     if len(args.snap_names) != len(args.snap_steps):
         raise ValueError("--snap_names length must match --snap_steps length")
 
     print(f"Collecting snapshots at steps: {list(zip(args.snap_names, args.snap_steps))}")
     snapshots = _collect_snapshots(env, seed=args.seed, snap_steps=args.snap_steps)
 
-    # Map step -> name for nicer filenames
+    # Map step
     step_to_name = {s: n for n, s in zip(args.snap_names, args.snap_steps)}
 
     
@@ -703,7 +656,7 @@ def main():
     os.makedirs(outdir, exist_ok=True)
 
 
-    # === VIDEO GENERATION BLOCK ===
+    #Video Generation Block
     
     algos_to_run = ["ddqn", "ppo", "sac"] if args.algo == "all" else [args.algo]
     grid_paths = {}

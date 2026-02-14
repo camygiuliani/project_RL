@@ -103,7 +103,7 @@ def make_env(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4,render_mode=Non
         noop_max=30, 
         frame_skip=frame_skip, 
         screen_size=84, 
-        terminal_on_life_loss=True, # Critical for learning safety
+        terminal_on_life_loss=True, 
         grayscale_obs=True, 
         scale_obs=False 
     )
@@ -111,7 +111,7 @@ def make_env(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4,render_mode=Non
     if scale_reward:
         env = ScaleReward(env, scale=0.01)
     else:      
-        env = ClipReward(env)  # Stabilizes PPO training
+        env = ClipReward(env)
     env = gym.wrappers.FrameStackObservation(env, 4)
     return env
 
@@ -123,7 +123,7 @@ def make_env_eval(env_id="ALE/SpaceInvaders-v5", seed=0, frame_skip=4,render_mod
         noop_max=30, 
         frame_skip=frame_skip, 
         screen_size=84, 
-        terminal_on_life_loss=False, # During evaluation, we want to see the agent's performance without premature episode termination  
+        terminal_on_life_loss=False,
         grayscale_obs=True, 
         scale_obs=False 
     )

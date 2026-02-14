@@ -9,8 +9,6 @@ def load_config(path):
     with open(path, "r") as f:
         return yaml.safe_load(f)
 
-
-
 def save_training_csv(history,path):
     if len(history) == 0:
         print("[WARN] No metrics to save.")

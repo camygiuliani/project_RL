@@ -48,9 +48,7 @@ class DDQN_Agent:
         self.gamma = gamma
         self.double_dqn = double_dqn
 
-        # Initialize action-value function Q with random weights
         self.q = DDQNCNN(self.n_actions, self.n_channels).to(self.device)
-        # Initialize target action-value function Q with the same weights
         self.tgt = DDQNCNN(self.n_actions, self.n_channels).to(self.device)
         self.tgt.load_state_dict(self.q.state_dict())
         
@@ -90,16 +88,16 @@ class DDQN_Agent:
         rews_t = torch.from_numpy(rews).to(self.device)
         dones_t = torch.from_numpy(dones).to(self.device)
 
-        q_values = self.q(obs_t)  # (B,A)
+        q_values = self.q(obs_t)  
         q_a = q_values.gather(1, acts_t.view(-1,1)).squeeze(1)
 
         #6 set y_j
         with torch.no_grad():
             if self.double_dqn:
             #DDQN
-                # action selection from online net
+                #Action selection from online net
                 next_actions = torch.argmax(self.q(next_obs_t), dim=1)  # (B,)
-                # value from target net
+                #Value from target net
                 next_q = self.tgt(next_obs_t).gather(1, next_actions.view(-1,1)).squeeze(1)
 
             else:
@@ -148,7 +146,7 @@ class DDQN_Agent:
 
         ## for file csv
         history = []
-        returns_window = []   # per avg_return_100
+        returns_window = []  
 
 
         pbar = tqdm(range(1, total_steps + 1))
@@ -230,10 +228,8 @@ class DDQN_Agent:
 
         env.close()
        
-        #saving training metrics to csv
         save_training_csv(history, final_path_csv)
 
-        #final save
         self.save(final_path)
         print(f"[DDQN] saved final checkpoint: {final_path}")
 
@@ -289,14 +285,12 @@ class ReplayBuffer:
         self.size = 0
 
         self.obs = np.zeros((capacity, *obs_shape), dtype=np.uint8)
-        #self.next_obs = np.zeros((capacity, *obs_shape), dtype=np.uint8)
         self.acts = np.zeros((capacity,), dtype=np.int64)
         self.rews = np.zeros((capacity,), dtype=np.float32)
         self.dones = np.zeros((capacity,), dtype=np.float32)
 
     def add(self, o, a, r, no, done):
         self.obs[self.idx] = o
-        #self.next_obs[self.idx] = no
         self.acts[self.idx] = a
         self.rews[self.idx] = r
         self.dones[self.idx] = float(done)
@@ -314,7 +308,7 @@ class ReplayBuffer:
             self.obs[idxs], 
             self.acts[idxs], 
             self.rews[idxs], 
-            self.obs[next_idxs],  # This is your next_obs!
+            self.obs[next_idxs],  
             self.dones[idxs]
         )
     def __len__(self):

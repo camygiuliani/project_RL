@@ -161,8 +161,7 @@ def main():
             csv_dir=cfg["ppo"]["save_dir"]
             agent=ppo_agent
            
-           
-        
+                  
         elif args.sac:
             print("Starting SAC evaluation...\n")
             ckpt=cfg["sac"]["path_best_model"]
@@ -174,12 +173,9 @@ def main():
             raise ValueError("Choose one algorithm for evaluation: --ddqn or --ppo or --sac")
 
     
-   
-        # how much eposides to evaluate, if classes have this attribute
         if hasattr(agent, "eval_episodes"):
             agent.eval_episodes = args.eval_episodes
 
-        # evaluation with loading the checkpoint
         n_ep = cfg["eval"]["n_episodes"] if not args.render else cfg["eval"]["n_episodes_render"]
         out = agent.eval(seed=cfg["eval"]["seed"],
                         n_episodes=n_ep,
@@ -208,8 +204,6 @@ def main():
             if not file_exists:
                 writer.writerow(["algo", "episodes", "mean_return", "std_return"])
             writer.writerow(["ddqn", n_ep, mean_r, std_r])
-
-  
     return 0
         
 if __name__ == "__main__":

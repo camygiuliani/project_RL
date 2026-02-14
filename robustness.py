@@ -11,16 +11,10 @@ from dataclasses import dataclass, asdict
 from typing import Callable, Dict, List, Optional, Tuple
 import cv2
 import sarfa
+import matplotlib.pyplot as plt
 
-# matplotlib optional
-try:
-    import matplotlib.pyplot as plt
-except Exception:
-    plt = None
 
-# =========================
-# Helpers
-# =========================
+#Helpers
 
 def summarize(results):
     out= {}
@@ -41,7 +35,7 @@ def summarize(results):
     return out
 
 def _extract_ale_rgb(env):
-    """Returns the true game RGB frame from ALE if possible."""
+    #Returns the true game RGB frame from ALE if possible.
     e = env
     while hasattr(e, "env"):
         if hasattr(e, "ale"):
@@ -54,7 +48,7 @@ def _extract_ale_rgb(env):
                 return frame
     except Exception:
         pass
-    # Fallback
+    
     try:
         frame = env.render()
         if isinstance(frame, list): frame = frame[0]
@@ -147,9 +141,9 @@ def occlude_patches_hwc(obs_hwc: np.ndarray, patch: int, patch_indices: List[Tup
     return out
 
 def draw_high_res_occlusion(img_high_res_bgr, patch_indices, agent_h=84, agent_w=84, patch_size=8, mode="grey"):
-    """
-    Draws the occlusion boxes on the High-Res image.
-    """
+    
+    #Draws the occlusion boxes on the High-Res image.
+  
     H_hr, W_hr = img_high_res_bgr.shape[:2]
     out = img_high_res_bgr.copy()
     
@@ -161,14 +155,12 @@ def draw_high_res_occlusion(img_high_res_bgr, patch_indices, agent_h=84, agent_w
     if mode == "grey":
         fill_color = (127, 127, 127)
     elif mode == "zero":
-        fill_color = (0, 0, 0) # Note: Black blocks might be invisible on black space background
+        fill_color = (0, 0, 0)
     elif mode == "mean":
-        # Calculate mean color of the frame (B, G, R)
         mean_bgr = img_high_res_bgr.mean(axis=(0, 1)).astype(int)
         fill_color = tuple(int(x) for x in mean_bgr)
     
     for (py, px) in patch_indices:
-        # Convert agent grid coords to pixel coords
         y0 = int(py * patch_size * scale_y)
         x0 = int(px * patch_size * scale_x)
         y1 = int(min((py + 1) * patch_size, agent_h) * scale_y)
@@ -297,10 +289,10 @@ def run_eval(env, policy_fn, sarfa_heatmap_fn, episodes, occ, condition, seed_of
         
         while not done:
             # 1. Prepare Agent Data
-            obs_hwc, tag = to_hwc(obs) # Agent view (84, 84, C)
+            obs_hwc, tag = to_hwc(obs)
             obs_used = obs
             
-            # 2. Determine Occlusion patches (on 84x84 grid)
+            # 2. Determine Occlusion patches
             patches_to_hide = []
             
             if condition in ("mean", "zero", "grey", "random") and sarfa_heatmap_fn is None:
@@ -321,7 +313,7 @@ def run_eval(env, policy_fn, sarfa_heatmap_fn, episodes, occ, condition, seed_of
                 occ_obs_hwc = occlude_patches_hwc(obs_hwc, occ.patch, patches_to_hide, occ.mode)
                 obs_used = from_hwc(occ_obs_hwc, tag)
             
-            # 4. Visualization
+            # 4. Visualization -> snapshot and/or video
             if (video_writer is not None and ep == 0) or (ep == 0 and t == 50 and condition in ("mean", "zero", "grey", "random")):
                 vis_base_bgr = cv2.cvtColor(raw_rgb, cv2.COLOR_RGB2BGR)
                 
@@ -447,7 +439,6 @@ def main():
     if args.run_degrad:
         k_steps = [0, 5, 10, 15, 20] 
         
-        # Struttura per raccogliere i dati del grafico
         plot_data = {
             'k_values': k_steps,
             'Random': {'means': [], 'stds': []},
