@@ -40,9 +40,10 @@ Camilla Giuliani 1883207 &&  Pietro D'Annibale 1917211
 
 **Outputs**
 - `runs/` — trained models, training and evaluation logs  (timestamped)
+- `checkpoints/` - intermidiate checkpoints of trained models (timestamped)
 - `robustness_outputs/` — robustness results
 - `sarfa_outputs/` — SARFA visual outputs (timestamped)
-- `checkpoints/` - intermidiate checkpoints of trained models (timestamped)
+
 
 
 ## Experimental Setup (Summary)
@@ -168,6 +169,11 @@ To enable the SARFA-guided occlusion condition, add:
 ```bash
 python3 robustness.py --algo <ddqn|ppo|sac> --run_sarfa
 ```
+To record a video of the occluded runs, launch:
+```bash
+python3 robustness.py --algo <ddqn|ppo|sac> --run_sarfa --video
+```
+
 To test robustness on increasing number of patches, run:
 ```bash
 python3 robustness.py --algo <ddqn|ppo|sac> --run_sarfa --run_degrad
