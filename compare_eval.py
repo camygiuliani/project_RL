@@ -45,9 +45,6 @@ def compare_algorithms(
         "SAC":  {"mean": 0.0, "std": 0.0, "color": "#2ca02c"}  # Green
     }
 
-    # -------------------------------------------------------------------------
-    # 2. Evaluate DDQN
-    # -------------------------------------------------------------------------
     if ddqn_path and os.path.exists(ddqn_path):
         print(f"\nEvaluating DDQN (ckpt: {os.path.basename(ddqn_path)})...")
         agent = DDQN_Agent(env=env_id,

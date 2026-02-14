@@ -121,7 +121,7 @@ def occlude_patches_hwc(obs_hwc: np.ndarray, patch: int, patch_indices: List[Tup
     # Determine fill value
     if mode == "mean":
         fill = out.mean(axis=(0, 1), keepdims=True).astype(out.dtype)
-    elif mode == "gray":
+    elif mode == "grey":
         val = 127 if out.dtype == np.uint8 else 0.5
         fill = np.full((1, 1, C), val, dtype=out.dtype)
     elif mode == "zero":
@@ -146,7 +146,7 @@ def occlude_patches_hwc(obs_hwc: np.ndarray, patch: int, patch_indices: List[Tup
                 out[y0:y1, x0:x1, :] = fill
     return out
 
-def draw_high_res_occlusion(img_high_res_bgr, patch_indices, agent_h=84, agent_w=84, patch_size=8, mode="gray"):
+def draw_high_res_occlusion(img_high_res_bgr, patch_indices, agent_h=84, agent_w=84, patch_size=8, mode="grey"):
     """
     Draws the occlusion boxes on the High-Res image.
     """
@@ -158,7 +158,7 @@ def draw_high_res_occlusion(img_high_res_bgr, patch_indices, agent_h=84, agent_w
 
     # Define color for solid modes
     fill_color = None
-    if mode == "gray":
+    if mode == "grey":
         fill_color = (127, 127, 127)
     elif mode == "zero":
         fill_color = (0, 0, 0) # Note: Black blocks might be invisible on black space background
@@ -225,6 +225,42 @@ def plot_summary(summary, outpath, title) -> None:
     plt.close()
     print(f"Saved summary plot to {outpath}")
 
+def plot_degradation_curve(data_summary, save_path, algo_name):
+    plt.figure(figsize=(10, 6))
+    
+    k_values = data_summary['k_values']
+    
+    styles = {
+        'Random': {'color': 'grey', 'marker': 'o', 'label': 'Random Occlusion'},
+        'SARFA':  {'color': 'red',  'marker': 's', 'label': 'SARFA Occlusion'}
+    }
+
+    for strategy, stats in data_summary.items():
+        if strategy == 'k_values': continue 
+        
+        means = np.array(stats['means'])
+        stds = np.array(stats['stds'])
+        
+        plt.plot(k_values, means, 
+                 label=styles[strategy]['label'], 
+                 color=styles[strategy]['color'], 
+                 marker=styles[strategy]['marker'], 
+                 linewidth=2)
+
+        plt.fill_between(k_values, means - stds, means + stds, 
+                         color=styles[strategy]['color'], alpha=0.15)
+
+    plt.title(f"Robustness Analysis: {algo_name.upper()} Degradation Curve", fontsize=14)
+    plt.xlabel("Number of Masked Patches (k)", fontsize=12)
+    plt.ylabel("Average Return", fontsize=12)
+    plt.grid(True, linestyle='--', alpha=0.6)
+    plt.legend()
+    
+    plt.tight_layout()
+    plt.savefig(save_path, dpi=300)
+    plt.close()
+    print(f"Graph saved in: {save_path}")
+
 @dataclass
 class EpisodeResult:
     episode: int
@@ -234,6 +270,7 @@ class EpisodeResult:
 
 def run_eval(env, policy_fn, sarfa_heatmap_fn, episodes, occ, condition, seed_offset=0, save_dir=None, save_video=False):
     results = []
+    print_sem = True
     rng = np.random.default_rng((occ.seed if occ else 0) + seed_offset)
     if save_dir: os.makedirs(save_dir, exist_ok=True)
     condition_str = f"sarfa_{condition}" if sarfa_heatmap_fn is not None else condition
@@ -257,7 +294,7 @@ def run_eval(env, policy_fn, sarfa_heatmap_fn, episodes, occ, condition, seed_of
         done = False
         total = 0.0
         t = 0
-
+        
         while not done:
             # 1. Prepare Agent Data
             obs_hwc, tag = to_hwc(obs) # Agent view (84, 84, C)
@@ -266,10 +303,13 @@ def run_eval(env, policy_fn, sarfa_heatmap_fn, episodes, occ, condition, seed_of
             # 2. Determine Occlusion patches (on 84x84 grid)
             patches_to_hide = []
             
-            if condition in ("mean", "zero", "gray", "random") and sarfa_heatmap_fn is None:
+            if condition in ("mean", "zero", "grey", "random") and sarfa_heatmap_fn is None:
                 patches_to_hide = random_patch_indices(obs_hwc.shape[0], obs_hwc.shape[1], occ.patch, occ.k, rng)
 
-            elif condition in ("mean", "zero", "gray", "random") and sarfa_heatmap_fn is not None:
+            elif condition in ("mean", "zero", "grey", "random") and sarfa_heatmap_fn is not None:
+                if print_sem:
+                    print(f"Running SARFA guided occlusion for condition={condition}")
+                    print_sem = False
                 a_clean = policy_fn(obs)
                 heat = sarfa_heatmap_fn(obs, a_clean) 
                 heat_hwc, _ = to_hwc(heat)
@@ -282,7 +322,7 @@ def run_eval(env, policy_fn, sarfa_heatmap_fn, episodes, occ, condition, seed_of
                 obs_used = from_hwc(occ_obs_hwc, tag)
             
             # 4. Visualization
-            if (video_writer is not None and ep == 0) or (ep == 0 and t == 50 and condition in ("mean", "zero", "gray", "random")):
+            if (video_writer is not None and ep == 0) or (ep == 0 and t == 50 and condition in ("mean", "zero", "grey", "random")):
                 vis_base_bgr = cv2.cvtColor(raw_rgb, cv2.COLOR_RGB2BGR)
                 
                 vis_overlaid = vis_base_bgr
@@ -291,7 +331,7 @@ def run_eval(env, policy_fn, sarfa_heatmap_fn, episodes, occ, condition, seed_of
                                                       agent_h=obs_hwc.shape[0], 
                                                       agent_w=obs_hwc.shape[1], 
                                                       patch_size=occ.patch, 
-                                                      mode=occ.mode if condition != "clean" else "gray")
+                                                      mode=occ.mode if condition != "clean" else "grey")
                 else:
                     vis_final = vis_overlaid
 
@@ -300,11 +340,11 @@ def run_eval(env, policy_fn, sarfa_heatmap_fn, episodes, occ, condition, seed_of
                 if (video_writer is not None and ep == 0):
                     video_writer.write(frame_out)
 
-                if t == 50 and condition in ("mean", "zero", "gray", "random"):
+                if t == 50 and condition in ("mean", "zero", "grey", "random"):
                     if sarfa_heatmap_fn is not None:
-                        s_path = os.path.join(save_dir, f"snapshot_{condition_str}_ep{ep}_step{t}.png")
+                        s_path = os.path.join(save_dir, f"snapshot_{condition_str}_ep{ep}_step{t}_k{len(patches_to_hide)}.png")
                     else:
-                        s_path = os.path.join(save_dir, f"snapshot_{condition_str}_ep{ep}_step{t}.png")
+                        s_path = os.path.join(save_dir, f"snapshot_{condition_str}_ep{ep}_step{t}_k{len(patches_to_hide)}.png")
                     cv2.imwrite(s_path, frame_out)
                     print(f"[{condition_str}] Saved snapshot: {s_path}")
 
@@ -377,11 +417,12 @@ def main():
     ap.add_argument("--video", "-video", action="store_true")
     ap.add_argument("--patch", "-patch", type=int, default=8)
     ap.add_argument("--k", "-k", type=int, default=10)
-    ap.add_argument("--mode", "-mode", type=str, default="zero", choices=["zero", "gray", "mean", "random", "all"])
+    ap.add_argument("--mode", "-mode", type=str, default="zero", choices=["zero", "grey", "mean", "random", "all"])
     ap.add_argument("--seed", "-seed", type=int, default=0)
     ap.add_argument("--frame_skip", "-frame_skip", type=int, default=4)
     ap.add_argument("--device", "-device", type=str, default="cuda")
     ap.add_argument("--run_sarfa", "-run_sarfa", action="store_true")
+    ap.add_argument("--run_degrad", "-run_degrad", action="store_true")
 
     args = ap.parse_args()
 
@@ -396,16 +437,74 @@ def main():
     
     policy_fn, algo_name, agent = build_policy(args.algo, args.env_id, ckpt, args.device, cfg)
 
-    results: List[EpisodeResult] = []
-
-    results += run_eval(env, policy_fn, sarfa_heatmap_fn=None, episodes=args.episodes, occ=None, 
-                        condition="clean", seed_offset=args.seed, save_dir=outdir, save_video=args.video)
-    
     if args.mode == "all":
-        modes_to_run = ["gray", "mean", "zero", "random"]
+        modes_to_run = ["grey", "mean", "zero", "random"]
     else:
         modes_to_run = [args.mode]
+        
+    results: List[EpisodeResult] = []
     
+    if args.run_degrad:
+        k_steps = [0, 5, 10, 15, 20] 
+        
+        # Struttura per raccogliere i dati del grafico
+        plot_data = {
+            'k_values': k_steps,
+            'Random': {'means': [], 'stds': []},
+            'SARFA':  {'means': [], 'stds': []}
+        }
+
+        print(f"--- Starting Robustness Curve Analysis ---")
+        print(f"Testing k values: {k_steps}")
+        
+        mode = "grey" if args.mode == "all" else args.mode
+        for k in k_steps:
+            print(f"\n>>> Testing k={k} patches")
+            
+            occ_random = OcclusionConfig(patch=args.patch, k=k, mode=mode, seed=args.seed)
+            
+            res_random = run_eval(env, policy_fn, sarfa_heatmap_fn=None, episodes=args.episodes, occ=occ_random, 
+                        condition=mode, seed_offset=args.seed + 10_000, save_dir=outdir, save_video=args.video)
+            
+            rets_rnd = [r.return_sum for r in res_random]
+            plot_data['Random']['means'].append(np.mean(rets_rnd))
+            plot_data['Random']['stds'].append(np.std(rets_rnd) if len(rets_rnd) > 1 else 0.0)
+
+            if args.run_sarfa:
+                if k == 0:
+                    plot_data['SARFA']['means'].append(np.mean(rets_rnd))
+                    plot_data['SARFA']['stds'].append(np.std(rets_rnd) if len(rets_rnd) > 1 else 0.0)
+                else:
+                    print(f"   > Running SARFA guided occlusion for k={k}...")
+                    sarfa_heatmap_fn = build_sarfa_heatmap_fn(agent, algo_name)
+                    print("none sarfa_heatmap_fn:", sarfa_heatmap_fn is None)
+                    res_sarfa = run_eval(env, policy_fn, sarfa_heatmap_fn=sarfa_heatmap_fn, episodes=args.episodes, occ=occ_random, 
+                                        condition=mode, seed_offset=args.seed + 20_000, save_dir=outdir, save_video=args.video)
+                    
+                    rets_sarfa = [r.return_sum for r in res_sarfa]
+                    plot_data['SARFA']['means'].append(np.mean(rets_sarfa))
+                    plot_data['SARFA']['stds'].append(np.std(rets_sarfa) if len(rets_sarfa) > 1 else 0.0)
+
+        csv_path = os.path.join(outdir, f"degradation_data_{algo_name}.csv")
+        with open(csv_path, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerow(['Method', 'k', 'Mean_Return', 'Std_Dev'])
+            for i, k in enumerate(k_steps):
+                writer.writerow(['Random', k, plot_data['Random']['means'][i], plot_data['Random']['stds'][i]])
+                if args.run_sarfa:
+                    writer.writerow(['SARFA', k, plot_data['SARFA']['means'][i], plot_data['SARFA']['stds'][i]])
+        print(f"Tabular data saved in {csv_path}")
+
+        plot_filename = f"robustness_curve_{algo_name}.png"
+        if not args.run_sarfa:
+            del plot_data['SARFA']
+            
+        plot_degradation_curve(plot_data, os.path.join(outdir, plot_filename), algo_name)
+        results += run_eval(env, policy_fn, sarfa_heatmap_fn=None, episodes=args.episodes, occ=None, 
+                            condition="clean", seed_offset=args.seed, save_dir=outdir, save_video=args.video)
+
+        return
+     
     sem = 0
 
     for mode in modes_to_run:
@@ -418,6 +517,7 @@ def main():
         if sem == 0 and args.run_sarfa:
             print(f"Running SARFA occlusion for mode: {mode}...")
             sarfa_heatmap_fn = build_sarfa_heatmap_fn(agent=agent, algo_name=algo_name)
+            print("none sarfa_heatmap_fn:", sarfa_heatmap_fn is None)
             results += run_eval(env, policy_fn, sarfa_heatmap_fn=sarfa_heatmap_fn, episodes=args.episodes, occ=occ, 
                                 condition=mode, seed_offset=args.seed + 20_000, save_dir=outdir, save_video=args.video)
             sem= 1
